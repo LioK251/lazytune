@@ -307,6 +307,8 @@ pub fn player_report(window: Webview, app: AppHandle, report: String) -> Result<
         Report::Snapshot { snapshot } => {
             snapshot.validate()?;
             *s.playback.lock().unwrap() = snapshot.clone();
+            #[cfg(target_os = "windows")]
+            crate::taskbar::update(&app);
             let _ = app.emit_to("main", "playback", &snapshot);
         }
         Report::Reply { id, result, error } => {

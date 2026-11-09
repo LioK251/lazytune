@@ -3,6 +3,7 @@ An early preview of lazytune, a Rust desktop client for YouTube Music.
 - Search, albums, playlists, artist pages and following, queue, and account sign-in.
 - Synchronized lyrics, video inside the app, artwork colors, and customizable layout.
 - Native media controls, Discord Rich Presence, Last.fm, ListenBrainz, and SponsorBlock.
+- Windows taskbar hover controls for liking, previous, play/pause, and next.
 - Portable Windows executable; Apple Silicon and Intel macOS DMGs; Linux AppImage, DEB, and RPM.
 
 ### Installation

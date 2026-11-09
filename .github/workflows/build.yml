@@ -164,4 +164,13 @@ jobs:
           cd artifacts/release
           for checksum in SHA256SUMS-*.txt; do sha256sum --check "$checksum"; done
           cd ../..
-          gh release create "v$version" artifacts/release/* --draft --prerelease --target "$GITHUB_SHA" --title "lazytune $version preview" --notes-file docs/RELEASE_NOTES.md
+          if draft=$(gh release view "v$version" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo "Refusing to replace a published release. Bump the version first."
+              exit 1
+            fi
+            gh release edit "v$version" --draft --prerelease --target "$GITHUB_SHA" --title "lazytune $version preview" --notes-file docs/RELEASE_NOTES.md
+            gh release upload "v$version" artifacts/release/* --clobber
+          else
+            gh release create "v$version" artifacts/release/* --draft --prerelease --target "$GITHUB_SHA" --title "lazytune $version preview" --notes-file docs/RELEASE_NOTES.md
+          fi

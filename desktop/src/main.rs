@@ -3,6 +3,8 @@ mod app;
 mod media;
 mod plugins;
 mod storage;
+#[cfg(target_os = "windows")]
+mod taskbar;
 use tauri::Manager;
 fn main() {
     let context = tauri::generate_context!();
@@ -49,6 +51,11 @@ fn main() {
                 app::AppState::new(app.path().app_data_dir()?).map_err(std::io::Error::other)?;
             let size = state.settings.lock().unwrap().window_size;
             app.manage(state);
+            #[cfg(target_os = "windows")]
+            if let Err(e) = taskbar::setup(app.handle()) {
+                app.state::<app::AppState>()
+                    .status("taskbar", "unavailable", &e.to_string());
+            }
             if let Some(w) = app.get_window("main") {
                 #[cfg(not(target_os = "macos"))]
                 w.set_decorations(false)?;

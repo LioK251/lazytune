@@ -112,12 +112,12 @@ pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             app.manage(Controls(Mutex::new(controls)));
             let handle = app.clone();
             tauri::async_runtime::spawn(async move {
-                let mut last = String::new();
+                let mut last = lazytune_model::Track::default();
                 loop {
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     let p = handle.state::<AppState>().playback.lock().unwrap().clone();
-                    let changed = last != p.track.id;
-                    last = p.track.id.clone();
+                    let changed = last != p.track;
+                    last = p.track.clone();
                     let app = handle.clone();
                     let _ = handle.run_on_main_thread(move || {
                         let state = app.state::<Controls>();

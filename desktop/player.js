@@ -4,6 +4,8 @@
   if (location.origin !== 'https://music.youtube.com' || window.top !== window) return;
   let config = window.__lazytuneConfig ?? { adblock: true }, mode = 'audio', bound, lastEmit = 0, videoRequested = '';
   let pendingVolume=typeof config.volume==='number'?config.volume:null;
+  let requestedPlay=null;
+  let timeline={id:'',position:0,duration:0};
   const $ = s => document.querySelector(s);
   const api = () => $('#movie_player');
   const app = () => $('ytmusic-app');
@@ -13,8 +15,15 @@
   const str = v => String(v ?? '').slice(0, 1000);
   const image = v => (v?.thumbnails ?? []).at(-1)?.url ?? '';
   const track = r => ({ id: str(r?.videoId), title: str(r?.title?.runs?.map(r=>r.text).join('') ?? r?.title?.simpleText), artist: str(r?.longBylineText?.runs?.map(r=>r.text).join('')), artwork: image(r?.thumbnail), album:'',duration:0 });
-  // Buffering and clock offsets do not make a confirmed track unseekable.
-  const canSeek = (p,v,id) => !!id&&p?.getVideoData?.()?.video_id===id&&p?.getPlayerResponse?.()?.videoDetails?.videoId===id&&v?.readyState>0&&Number.isFinite(v.duration)&&v.duration>0&&!p?.classList.contains('ad-showing');
+  // Navigation can only cue a song; keep the user's play intent until its media starts.
+  function expectPlay(id='',restart=false) {
+    const p=api();
+    return requestedPlay={id,restart,response:p?.getPlayerResponse?.(),position:finite(p?.getCurrentTime?.()),until:performance.now()+20000,attempt:-Infinity};
+  }
+  const selected = (p,id,response=p?.getPlayerResponse?.()) => !requestedPlay||(requestedPlay.id?id===requestedPlay.id:response!==requestedPlay.response||requestedPlay.restart&&finite(p?.getCurrentTime?.())<requestedPlay.position-1);
+  // YouTube reuses an offset media timeline; only its song clock and metadata are track-relative.
+  const songDuration = (p,id) => timeline.id===id&&timeline.duration>0?timeline.duration:finite(Number(p?.getPlayerResponse?.()?.videoDetails?.lengthSeconds));
+  const canSeek = (p,v,id) => !!id&&p?.getVideoData?.()?.video_id===id&&p?.getPlayerResponse?.()?.videoDetails?.videoId===id&&selected(p,id)&&v?.readyState>0&&songDuration(p,id)>0&&!p?.classList.contains('ad-showing');
   function report(force = false) {
     if(pendingVolume!==null) {
       const media=$('#movie_player video'),player=api();
@@ -26,8 +35,20 @@
     const now = performance.now(); if (!force && now - lastEmit < 750) return; lastEmit=now;
     const p=api(),v=$('#movie_player video'),d=p?.getVideoData?.() ?? {}, response=p?.getPlayerResponse?.() ?? {};
     const consistent=!!d.video_id&&d.video_id===response.videoDetails?.videoId;
-    const position=consistent?finite(p?.getCurrentTime?.()??v?.currentTime):0;
-    const duration=consistent?finite(p?.getDuration?.()??v?.duration):0;
+    if(requestedPlay&&now>=requestedPlay.until)requestedPlay=null;
+    if(requestedPlay&&consistent&&selected(p,d.video_id,response)&&v?.readyState>0&&p?.playVideo) {
+      if(Number.isFinite(requestedPlay.attempt)&&p.getPlayerState?.()===1&&!v.paused&&!v.ended)requestedPlay=null;
+      else if(now-requestedPlay.attempt>=500) {
+        requestedPlay.attempt=now;
+        p.playVideo();
+      }
+    }
+    if(timeline.id!==(d.video_id??''))timeline={id:d.video_id??'',position:0,duration:0};
+    if(consistent) {
+      timeline.duration=songDuration(p,d.video_id);
+      timeline.position=timeline.duration>0?Math.min(timeline.duration,finite(p?.getCurrentTime?.(),timeline.position)):0;
+    }
+    const {position,duration}=timeline;
     const seekable=duration>0&&canSeek(p,v,d.video_id);
     let items=[];try { items=queue()?.queue?.getItems?.() ?? []; } catch {}
     const tracks=items.slice(0,500).map(i=>track(i.playlistPanelVideoRenderer ?? i.playlistPanelVideoWrapperRenderer?.primaryRenderer?.playlistPanelVideoRenderer)).filter(t=>/^[\w-]{11}$/.test(t.id));
@@ -38,28 +59,44 @@
   async function command(c) {
     const p=api(),bar=$('ytmusic-player-bar'),q=queue();
     switch(c.type) {
-      case 'play':
-        must(app()?.handleNavigationEndpoint,'YouTube Music is still starting').call(app(),{watchEndpoint:{videoId:c.value}}); break;
-      case 'play_collection': {
-        let playlist=c.value.slice(2);
-        if(c.value.startsWith('MPRE')) {
-          const response=await must(app()?.networkManager,'YouTube Music is still starting').fetch('/browse',{browseId:c.value});
-          const url=new URL(response?.microformat?.microformatDataRenderer?.urlCanonical??'',location.origin);
-          playlist=url.origin===location.origin&&url.pathname==='/playlist'?url.searchParams.get('list'):null;
+      case 'play': {
+        const navigate=must(app()?.handleNavigationEndpoint,'YouTube Music is still starting');
+        expectPlay(c.value);
+        if(p?.getVideoData?.()?.video_id!==c.value||p?.getPlayerResponse?.()?.videoDetails?.videoId!==c.value) {
+          try {navigate.call(app(),{watchEndpoint:{videoId:c.value}});}catch(e){requestedPlay=null;throw e;}
         }
-        if(!/^[\w-]{1,256}$/.test(playlist??''))throw Error('This collection is unavailable');
-        must(app()?.handleNavigationEndpoint,'YouTube Music is still starting').call(app(),{watchPlaylistEndpoint:{playlistId:playlist}});break;
+        break;
       }
-      case 'toggle': must(p,'Player is not ready'); p.getPlayerState()===1?p.pauseVideo():p.playVideo();break;
-      case 'pause': p?.pauseVideo();break;
-      case 'resume': p?.playVideo();break;
-      case 'next': must($('.next-button.ytmusic-player-bar'),'Next is unavailable').click();break;
-      case 'previous': must($('.previous-button.ytmusic-player-bar'),'Previous is unavailable').click();break;
+      case 'play_collection': {
+        const wanted=expectPlay();
+        try {
+          let playlist=c.value.slice(2);
+          if(c.value.startsWith('MPRE')) {
+            const response=await must(app()?.networkManager,'YouTube Music is still starting').fetch('/browse',{browseId:c.value});
+            const url=new URL(response?.microformat?.microformatDataRenderer?.urlCanonical??'',location.origin);
+            playlist=url.origin===location.origin&&url.pathname==='/playlist'?url.searchParams.get('list'):null;
+          }
+          if(!/^[\w-]{1,256}$/.test(playlist??''))throw Error('This collection is unavailable');
+          if(requestedPlay!==wanted)break;
+          must(app()?.handleNavigationEndpoint,'YouTube Music is still starting').call(app(),{watchPlaylistEndpoint:{playlistId:playlist}});
+        }catch(e){if(requestedPlay===wanted)requestedPlay=null;throw e;}
+        break;
+      }
+      case 'toggle':
+        must(p,'Player is not ready');
+        if(p.getPlayerState()===1){requestedPlay=null;p.pauseVideo();}else if(!requestedPlay)expectPlay(p.getVideoData?.()?.video_id??'');break;
+      case 'pause': requestedPlay=null;p?.pauseVideo();break;
+      case 'resume': if(!requestedPlay)expectPlay(p?.getVideoData?.()?.video_id??'');break;
+      case 'next':
+      case 'previous': {
+        const button=must($(`.${c.type}-button.ytmusic-player-bar`),'Track navigation is unavailable');
+        expectPlay('',c.type==='previous');button.click();break;
+      }
       case 'seek': {
         const media=must($('#movie_player video'),'Player is not ready');
         const {position,track_id}=c.value;
         if(!canSeek(p,media,track_id))throw Error('The track changed or is still loading. Try seeking again.');
-        must(p?.seekTo,'Seeking is unavailable').call(p,Math.min(position,media.duration),true);break;
+        must(p?.seekTo,'Seeking is unavailable').call(p,Math.min(position,songDuration(p,track_id)),true);break;
       }
       case 'follow': {
         must(window.ytcfg?.get?.('LOGGED_IN'),'Sign in to follow artists');
@@ -131,14 +168,18 @@
       `;
       document.head.append(style);
     }
-    const v=$('#movie_player video');if(v && bound!==v){bound=v;for(const e of ['playing','pause','seeked','loadedmetadata','volumechange','ended','error'])v.addEventListener(e,()=>report(true));v.addEventListener('timeupdate',()=>report());}
+    const v=$('#movie_player video');if(v && bound!==v){bound=v;for(const e of ['playing','pause','seeked','loadedmetadata','canplay','volumechange','ended','error'])v.addEventListener(e,()=>report(true));v.addEventListener('timeupdate',()=>report());}
     const p=api();if(config.adblock&&p?.classList.contains('ad-showing')) {const button=p.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button');if(button)button.click();else if(v&&Number.isFinite(v.duration)&&v.duration>0)v.currentTime=v.duration;}
     const toggle=$('ytmusic-av-toggle');
+    const switchMode=method=>{
+      if(requestedPlay||v&&!v.paused&&!v.ended)expectPlay();
+      toggle[method]?.();
+    };
     const wantVideo=mode==='video'||!!config.auto_video;
-    if(!wantVideo&&toggle?.audioOnlyPlaybackAvailable&&!toggle.toggleDisabled&&toggle.playbackMode==='OMV_PREFERRED')toggle.onSongAvToggleTap?.();
+    if(!wantVideo&&toggle?.audioOnlyPlaybackAvailable&&!toggle.toggleDisabled&&toggle.playbackMode==='OMV_PREFERRED')switchMode('onSongAvToggleTap');
     if(wantVideo) {
       const id=p?.getVideoData?.()?.video_id??'';
-      if(id&&videoRequested!==id&&toggle?.selectedItemHasVideo&&!toggle.toggleDisabled&&toggle.playbackMode!=='OMV_PREFERRED') {videoRequested=id;toggle.onVideoAvToggleTap?.();}
+      if(id&&videoRequested!==id&&toggle?.selectedItemHasVideo&&!toggle.toggleDisabled&&toggle.playbackMode!=='OMV_PREFERRED') {videoRequested=id;switchMode('onVideoAvToggleTap');}
     }
     if(mode==='video') {
       document.documentElement.dataset.lazytuneMedia=v?.videoWidth>0?'video':'audio';
