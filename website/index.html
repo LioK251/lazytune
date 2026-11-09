@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111113">
+  <meta name="color-scheme" content="dark">
+  <title>lazytune | YouTube Music on your desktop</title>
+  <meta name="description" content="A lightweight, open-source YouTube Music app for Windows, macOS, and Linux. Synced lyrics, an editable queue, artwork colors, and Discord Rich Presence.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="lazytune">
+  <meta property="og:description" content="YouTube Music on your desktop. A lightweight Rust app for Windows, macOS, and Linux.">
+  <meta property="og:image" content="/assets/social.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
+  <link rel="preload" href="/assets/geist.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="/" aria-label="lazytune home"><img src="/assets/lazytune.png" alt="" width="36" height="36"><span>lazytune</span></a>
+    <nav aria-label="Main navigation">
+      <a class="feature-nav" href="#features">Features</a>
+      <a href="#downloads">Downloads</a>
+      <a href="https://github.com/LioK251/lazytune">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">YouTube Music.<br><span>On your desktop.</span></h1>
+        <p>A lightweight, open-source music player for Windows, macOS, and Linux.</p>
+        <a class="button primary" href="#downloads">Downloads <span aria-hidden="true">↓</span></a>
+      </div>
+      <img class="hero-icon" src="/assets/lazytune.png" alt="" width="180" height="180">
+    </section>
+
+    <section class="showcase wrap" aria-label="App screenshots">
+      <div class="preview-toolbar">
+        <div class="preview-tabs" role="tablist" aria-label="App views">
+          <button role="tab" id="tab-search" aria-controls="app-preview" aria-selected="true" data-view="search">Search</button>
+          <button role="tab" id="tab-album" aria-controls="app-preview" aria-selected="false" tabindex="-1" data-view="album">Albums</button>
+          <button role="tab" id="tab-settings" aria-controls="app-preview" aria-selected="false" tabindex="-1" data-view="settings">Appearance</button>
+        </div>
+        <a id="expand-preview" class="text-link" href="/assets/search.webp" target="_blank" rel="noopener">Expand <span aria-hidden="true">↗</span><span class="sr-only"> screenshot in a new tab</span></a>
+      </div>
+      <figure id="app-preview" role="tabpanel" aria-labelledby="tab-search" tabindex="0">
+        <img id="preview-image" src="/assets/search.webp" alt="lazytune search results showing music by Vansire, with playback controls along the bottom." width="2160" height="1350" fetchpriority="high">
+      </figure>
+      <p class="preview-caption">Windows preview. Also packaged for macOS and Linux.</p>
+    </section>
+
+    <section id="features" class="features wrap" aria-label="Features">
+      <article class="feature feature-player">
+        <div class="feature-copy"><h2>Playback, lyrics,<br>and queue.</h2><p>Synced lyrics follow the song. Reorder your queue, open the artist’s page, or switch to video in the same window.</p></div>
+        <a class="detail-image" href="/assets/player-detail.webp" target="_blank" rel="noopener" aria-label="Expand Now Playing screenshot"><img src="/assets/player-detail.webp" alt="The Now Playing artwork, track title, and artist in lazytune." width="815" height="932" loading="lazy"></a>
+      </article>
+      <article class="feature feature-settings">
+        <div class="feature-copy"><h2>Artwork colors<br>and glass effects.</h2><p>Use album colors and glass effects. Rearrange the player, adjust the background, and save a theme.</p></div>
+        <a class="detail-image" href="/assets/settings-detail.webp" target="_blank" rel="noopener" aria-label="Expand appearance screenshot"><img src="/assets/settings-detail.webp" alt="Appearance settings for album colors, album artwork backgrounds, and a glassy playback bar." width="1077" height="750" loading="lazy"></a>
+      </article>
+    </section>
+
+    <section class="integrations wrap" aria-labelledby="integrations-title">
+      <div><h2 id="integrations-title">Built-in integrations.</h2><p>Choose what runs alongside your music.</p></div>
+      <dl>
+        <div><dt>Discord</dt><dd>Share your track with Listening to Music status.</dd></div>
+        <div><dt>Last.fm &amp; ListenBrainz</dt><dd>Keep your listening history up to date.</dd></div>
+        <div><dt>Ad blocking &amp; SponsorBlock</dt><dd>Filter ads and skip community-marked segments.</dd></div>
+        <div><dt>Media keys &amp; tray controls</dt><dd>Control playback while the window is out of the way.</dd></div>
+      </dl>
+    </section>
+
+    <section id="downloads" class="downloads wrap" aria-labelledby="downloads-title">
+      <div class="download-heading"><h2 id="downloads-title">Download lazytune.</h2><p id="release-status" role="status">The first preview is being prepared.</p></div>
+      <div class="download-list">
+        <article class="download-row" data-platform="windows">
+          <div><h3>Windows</h3><p>Windows 10 or 11 · x64</p></div>
+          <div class="download-links"><span class="pending-download">Preparing EXE</span></div>
+        </article>
+        <article class="download-row" data-platform="macos">
+          <div><h3>macOS</h3><p>macOS 14 or newer</p></div>
+          <div class="download-links"><span class="pending-download">Preparing Apple Silicon &amp; Intel DMGs</span></div>
+        </article>
+        <article class="download-row" data-platform="linux">
+          <div><h3>Linux</h3><p>x64 · AppImage, DEB, and RPM</p></div>
+          <div class="download-links"><span class="pending-download">Preparing Linux packages</span></div>
+        </article>
+      </div>
+      <div class="download-notes">
+        <a id="release-link" class="text-link" href="https://github.com/LioK251/lazytune/releases">View releases <span aria-hidden="true">↗</span></a>
+        <details>
+          <summary>Installation &amp; system requirements</summary>
+          <div class="requirements">
+            <p><strong>Windows:</strong> run the portable EXE. Microsoft Edge WebView2 Runtime is required.</p>
+            <p><strong>macOS:</strong> open the DMG and drag lazytune to Applications. Choose Apple Silicon for M-series Macs, or Intel for older Intel Macs.</p>
+            <p><strong>Linux:</strong> DEB packages target Ubuntu 22.04 and compatible systems. RPM packages require WebKitGTK 4.1 and GStreamer codecs. Make an AppImage executable before opening it; FUSE 2 or <code>--appimage-extract-and-run</code> is required.</p>
+            <p>Preview releases are not Windows code-signed or Apple notarized. Your operating system may warn on first launch. Check the release notes and SHA-256 checksums before installing.</p>
+            <p>This is an early release. Google sign-in, playback, codecs, and desktop integration can vary by platform. YouTube Music’s account and subscription requirements still apply.</p>
+          </div>
+        </details>
+      </div>
+      <noscript><p class="noscript-note">See <a href="https://github.com/LioK251/lazytune/releases">GitHub releases</a> for available downloads.</p></noscript>
+    </section>
+  </main>
+  <footer class="site-footer wrap">
+    <div class="footer-top"><a class="brand" href="/" aria-label="lazytune home"><img src="/assets/lazytune.png" alt="" width="28" height="28"><span>lazytune</span></a><div><a href="https://github.com/LioK251/lazytune/blob/main/LICENSE">MIT license</a><a href="https://github.com/LioK251/lazytune/issues">Report an issue</a></div></div>
+    <p>An independent, open-source client. Not affiliated with Google or YouTube. Music and artwork belong to their respective owners.</p>
+  </footer>
+</body>
+</html>
