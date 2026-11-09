@@ -41,7 +41,7 @@ impl AppState {
         };
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
-            .user_agent("lazytune/0.1.0")
+            .user_agent(concat!("lazytune/", env!("CARGO_PKG_VERSION")))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| e.to_string())?;
@@ -154,8 +154,9 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
             .data_store_identifier(*b"lazytune-player1")
             .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
+        // WebKit's default user agent lacks Safari identifiers and YouTube rejects it.
         builder=builder.user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
     }
     let parent = app.get_window("main").ok_or("Main window unavailable")?;

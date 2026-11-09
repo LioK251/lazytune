@@ -1,10 +1,7 @@
-The first release of lazytune, a Rust desktop client for YouTube Music.
+Fixes the “YouTube Music is not optimized for your browser” message that blocked account sign-in on macOS.
 
-- Search, albums, playlists, artist pages and following, queue, and account sign-in.
-- Synchronized lyrics, video inside the app, artwork colors, and customizable layout.
-- Native media controls, Discord Rich Presence, Last.fm, ListenBrainz, and SponsorBlock.
-- Windows taskbar hover controls for liking, previous, play/pause, and next.
-- Portable Windows executable; Apple Silicon and Intel macOS DMGs; Linux AppImage, DEB, and RPM.
+- The macOS player now sends Safari browser identification, so YouTube Music loads instead of rejecting the embedded WebKit browser.
+- The version shown in Settings and sent to integrations now follows the packaged app version.
 
 ### Installation
 
@@ -18,6 +15,6 @@ SHA-256 checksums are supplied per platform. Windows executables are not Authent
 
 ### Known limitations
 
-Windows sign-in, playback, seeking, and volume persistence have been exercised locally. Automated builds do not establish macOS/Linux sign-in, audio playback, media keys, suspend/resume, or long background-playback compatibility. Those hardware checks and live scrobbling verification remain pending.
+The original browser rejection, corrected YouTube Music page, and Google sign-in form were checked in WebKit 27.2. Windows sign-in, playback, seeking, and volume persistence have been exercised locally. Completing account authorization on a Mac, native macOS/Linux playback, media keys, suspend/resume, long background playback, and live scrobbling still need hardware verification.
 
 YouTube Music availability, account restrictions, and subscription rules still apply. lazytune is an independent client and is not affiliated with Google or YouTube.

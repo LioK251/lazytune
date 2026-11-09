@@ -282,7 +282,7 @@ async fn submit(
         )
         .await?;
     } else {
-        let mut payload = json!({"track_metadata":{"artist_name":listen.track.artist,"track_name":listen.track.title,"release_name":listen.track.album,"additional_info":{"submission_client":"lazytune","submission_client_version":"0.1.0","duration_ms":(listen.track.duration*1000.0)as u64}}});
+        let mut payload = json!({"track_metadata":{"artist_name":listen.track.artist,"track_name":listen.track.title,"release_name":listen.track.album,"additional_info":{"submission_client":"lazytune","submission_client_version":env!("CARGO_PKG_VERSION"),"duration_ms":(listen.track.duration*1000.0)as u64}}});
         if !now {
             payload["listened_at"] = json!(listen.started);
         }
