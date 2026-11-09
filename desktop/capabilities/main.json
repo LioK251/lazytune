@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "webviews": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-bootstrap", "allow-window-action", "allow-catalog", "allow-player-command", "allow-save-settings", "allow-import-theme", "allow-export-theme", "allow-apply-theme", "allow-choose-wallpaper", "allow-reset-theme", "allow-show-player", "allow-logout", "allow-lyrics", "allow-artwork-colors", "allow-set-credential", "allow-lastfm-connect", "allow-lastfm-finish", "allow-plugin-status", "allow-undo-skip"]
+}
+

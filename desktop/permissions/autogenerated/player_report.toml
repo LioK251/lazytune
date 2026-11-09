@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-player-report"
+description = "Enables the player_report command without any pre-configured scope."
+commands.allow = ["player_report"]
+
+[[permission]]
+identifier = "deny-player-report"
+description = "Denies the player_report command without any pre-configured scope."
+commands.deny = ["player_report"]

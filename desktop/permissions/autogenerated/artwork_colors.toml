@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-artwork-colors"
+description = "Enables the artwork_colors command without any pre-configured scope."
+commands.allow = ["artwork_colors"]
+
+[[permission]]
+identifier = "deny-artwork-colors"
+description = "Denies the artwork_colors command without any pre-configured scope."
+commands.deny = ["artwork_colors"]

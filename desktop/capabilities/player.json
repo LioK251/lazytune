@@ -1,0 +1,7 @@
+{
+  "identifier": "player",
+  "webviews": ["player"],
+  "local": false,
+  "remote": { "urls": ["https://music.youtube.com"] },
+  "permissions": ["allow-player-report"]
+}

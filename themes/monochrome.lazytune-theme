@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "Monochrome",
+  "palette": { "background": "#171717", "surface": "#222222", "text": "#DDDDDD", "muted": "#A3A3A3", "accent": "#DDDDDD" },
+  "density": "comfortable",
+  "dim": 0.68,
+  "blur": 24,
+  "artwork_colors": false,
+  "song_colors": false,
+  "glassy_player": false,
+  "layout": { "main": ["artwork", "queue"], "side": ["lyrics"], "home": ["recommendations", "library"] }
+}

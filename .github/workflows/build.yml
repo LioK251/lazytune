@@ -1,0 +1,147 @@
+name: Build and package
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['website/**', '**/*.md']
+  pull_request:
+    paths-ignore: ['website/**', '**/*.md']
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: Create a draft prerelease after all checks pass
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-22.04
+            platform: linux-x64
+          - os: macos-15
+            platform: macos-arm64
+          - os: macos-15-intel
+            platform: macos-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      LAZYTUNE_LASTFM_KEY: ${{ github.event_name != 'pull_request' && secrets.LASTFM_API_KEY || '' }}
+      LAZYTUNE_LASTFM_SECRET: ${{ github.event_name != 'pull_request' && secrets.LASTFM_SHARED_SECRET || '' }}
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.91.1
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux libraries and media codecs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libsecret-1-dev libasound2-dev patchelf gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@0.21.14
+      - name: Format, adapter, and packaging checks
+        run: |
+          cargo fmt --all --check
+          node --test scripts/player.test.cjs
+          python scripts/package_test.py
+      - name: Build UI
+        shell: bash
+        run: |
+          unset NO_COLOR
+          trunk build --release
+      - name: Rust checks
+        run: |
+          cargo test -p lazytune-model -p lazytune --locked
+          cargo clippy -p lazytune-model -p lazytune --locked -- -D warnings
+          cargo clippy -p lazytune-ui --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: UI interaction checks
+        if: runner.os == 'Linux'
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+        run: |
+          npm install --prefix .tools/qa playwright@1.65.0
+          npx --prefix .tools/qa playwright install --with-deps chrome
+          node --test scripts/ui.test.cjs
+      - name: Build release
+        run: python scripts/build.py --release --desktop-only
+      - name: Install packager
+        if: runner.os != 'Windows'
+        run: npm install --global @tauri-apps/cli@2.12.4
+      - name: macOS DMG
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        env:
+          APPLE_SIGNING_IDENTITY: '-'
+        run: tauri bundle --bundles dmg
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: tauri bundle --bundles deb,rpm,appimage
+      - name: Verify macOS bundle
+        if: runner.os == 'macOS'
+        run: |
+          codesign --verify --deep --strict target/release/bundle/macos/lazytune.app
+          file target/release/bundle/macos/lazytune.app/Contents/MacOS/lazytune
+      - name: Assemble artifacts and checksums
+        run: python scripts/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lazytune-${{ matrix.platform }}
+          path: artifacts/package/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 30
+
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  draft-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.draft_release
+    needs: [build, dependencies]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/release
+          pattern: lazytune-*
+          merge-multiple: true
+      - name: Prepare draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version=$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          cd artifacts/release
+          for checksum in SHA256SUMS-*.txt; do sha256sum --check "$checksum"; done
+          cd ../..
+          gh release create "v$version" artifacts/release/* --draft --prerelease --target "$GITHUB_SHA" --title "lazytune $version preview" --notes-file docs/RELEASE_NOTES.md

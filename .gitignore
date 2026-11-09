@@ -1,0 +1,12 @@
+/target/
+/dist/
+/.tools/
+/.cache/
+/artifacts/
+/desktop/gen/
+.env*
+*.log
+**/.vercel/
+**/node_modules/
+**/__pycache__/
+

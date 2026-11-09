@@ -1,0 +1,18 @@
+[package]
+name = "lazytune-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lazytune-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+leptos = { version = "0.8", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+serde-wasm-bindgen = "0.6"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "DomRect", "ScrollToOptions", "ScrollBehavior", "MediaQueryList", "Selection", "HtmlElement", "HtmlDialogElement", "HtmlInputElement", "HtmlSelectElement", "KeyboardEvent", "MouseEvent", "Event", "CustomEvent", "CustomEventInit", "DragEvent", "DataTransfer"] }
+console_error_panic_hook = "0.1"
+

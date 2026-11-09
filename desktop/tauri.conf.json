@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "lazytune",
+  "version": "0.1.0",
+  "identifier": "io.github.liok251.lazytune",
+  "build": { "frontendDist": "../dist", "devUrl": "http://localhost:1420" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "label": "main", "title": "lazytune", "width": 1280, "height": 820, "minWidth": 640, "minHeight": 480, "backgroundColor": "#111318" }],
+    "security": {
+      "capabilities": ["main", "player"],
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com https://i9.ytimg.com https://lh3.googleusercontent.com https://yt3.googleusercontent.com https://yt3.ggpht.com https://music.youtube.com/image/ https://www.gstatic.com/youtube/media/ytm/images/; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "deb", "rpm", "appimage"],
+    "shortDescription": "A lightweight desktop client for YouTube Music",
+    "homepage": "https://github.com/LioK251/lazytune",
+    "license": "MIT",
+    "category": "Music",
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
+    "macOS": { "minimumSystemVersion": "14.0" },
+    "linux": {
+      "appimage": { "bundleMediaFramework": true },
+      "deb": { "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1", "gstreamer1.0-plugins-good", "gstreamer1.0-plugins-bad", "gstreamer1.0-libav", "libsecret-1-0"] },
+      "rpm": { "depends": ["webkit2gtk4.1", "libayatana-appindicator-gtk3", "gstreamer1-plugins-good", "gstreamer1-plugins-bad-free", "libsecret"] }
+    }
+  }
+}
+

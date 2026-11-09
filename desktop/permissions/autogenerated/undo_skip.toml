@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-undo-skip"
+description = "Enables the undo_skip command without any pre-configured scope."
+commands.allow = ["undo_skip"]
+
+[[permission]]
+identifier = "deny-undo-skip"
+description = "Denies the undo_skip command without any pre-configured scope."
+commands.deny = ["undo_skip"]

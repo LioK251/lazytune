@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reset-theme"
+description = "Enables the reset_theme command without any pre-configured scope."
+commands.allow = ["reset_theme"]
+
+[[permission]]
+identifier = "deny-reset-theme"
+description = "Denies the reset_theme command without any pre-configured scope."
+commands.deny = ["reset_theme"]

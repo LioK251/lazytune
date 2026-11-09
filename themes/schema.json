@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "lazytune theme",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "name", "palette", "density", "dim", "blur", "artwork_colors", "layout"],
+  "properties": {
+    "version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "palette": {
+      "type": "object", "additionalProperties": false,
+      "required": ["background", "surface", "text", "muted", "accent"],
+      "properties": {
+        "background": { "$ref": "#/$defs/color" }, "surface": { "$ref": "#/$defs/color" },
+        "text": { "$ref": "#/$defs/color" }, "muted": { "$ref": "#/$defs/color" }, "accent": { "$ref": "#/$defs/color" }
+      }
+    },
+    "density": { "enum": ["comfortable", "compact"] },
+    "dim": { "type": "number", "minimum": 0, "maximum": 1 },
+    "blur": { "type": "integer", "minimum": 0, "maximum": 40 },
+    "artwork_colors": { "type": "boolean" },
+    "song_colors": { "type": "boolean", "default": false },
+    "glassy_player": { "type": "boolean", "default": false },
+    "layout": {
+      "type": "object", "additionalProperties": false, "required": ["main", "side", "home"],
+      "properties": {
+        "main": { "$ref": "#/$defs/blocks" }, "side": { "$ref": "#/$defs/blocks" },
+        "home": { "type": "array", "maxItems": 2, "uniqueItems": true, "items": { "enum": ["recommendations", "library"] } }
+      }
+    },
+    "wallpaper": {
+      "type": ["object", "null"], "additionalProperties": false, "required": ["format", "data"],
+      "properties": {
+        "format": { "enum": ["png", "jpeg"] },
+        "data": { "type": "string", "contentEncoding": "base64", "maxLength": 13981016 }
+      }
+    }
+  },
+  "$defs": {
+    "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "blocks": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "enum": ["artwork", "queue", "lyrics", "details"] } }
+  },
+  "$comment": "Runtime validation also checks byte lengths, contrast, uniqueness across both block regions, actual image format, decoded dimensions and total file size."
+}

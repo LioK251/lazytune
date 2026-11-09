@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lastfm-finish"
+description = "Enables the lastfm_finish command without any pre-configured scope."
+commands.allow = ["lastfm_finish"]
+
+[[permission]]
+identifier = "deny-lastfm-finish"
+description = "Denies the lastfm_finish command without any pre-configured scope."
+commands.deny = ["lastfm_finish"]
