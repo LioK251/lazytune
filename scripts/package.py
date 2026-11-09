@@ -23,7 +23,7 @@ def package(root, system, machine):
         if len(matches) != 1 or not matches[0].is_file():
             raise ValueError(f'Expected exactly one {extension} release artifact; build the platform bundles first.')
         files[f'{name}{extension}'] = matches[0]
-    for path in ['desktop/icons/lazytune-1024.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md']:
+    for path in ['desktop/icons/lazytune-1024.png', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'artifacts/THIRD_PARTY_LICENSES.html']:
         source = root / path
         if not source.is_file():
             raise ValueError(f'Missing release file: {path}')

@@ -188,7 +188,7 @@ pub struct PluginSettings {
 impl Default for PluginSettings {
     fn default() -> Self {
         Self {
-            discord: false,
+            discord: true,
             adblock: true,
             sponsorblock: false,
             lyrics: true,
@@ -336,6 +336,22 @@ pub fn parse_lrc(input: &str) -> Vec<LyricLine> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn new_profiles_enable_requested_defaults_and_preserve_saved_opt_outs() {
+        let mut settings: Settings = serde_json::from_str("{}").unwrap();
+        assert!(settings.theme.song_colors);
+        assert!(settings.theme.artwork_colors);
+        assert!(settings.theme.glassy_player);
+        assert!(settings.plugins.discord);
+        assert!(settings.plugins.adblock);
+        settings.theme.song_colors = false;
+        settings.theme.artwork_colors = false;
+        settings.theme.glassy_player = false;
+        settings.plugins.discord = false;
+        settings.plugins.adblock = false;
+        let saved = serde_json::to_string(&settings).unwrap();
+        assert_eq!(serde_json::from_str::<Settings>(&saved).unwrap(), settings);
+    }
     #[test]
     fn validates_commands_and_origins() {
         assert!(PlayerCommand::Play("dQw4w9WgXcQ".into()).validate().is_ok());

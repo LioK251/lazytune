@@ -96,9 +96,9 @@ impl Default for ThemePack {
             density: Density::Comfortable,
             dim: 0.68,
             blur: 24,
-            artwork_colors: false,
-            song_colors: false,
-            glassy_player: false,
+            artwork_colors: true,
+            song_colors: true,
+            glassy_player: true,
             layout: Layout::default(),
             wallpaper: None,
         }

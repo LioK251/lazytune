@@ -5,8 +5,8 @@
   "density": "comfortable",
   "dim": 0.68,
   "blur": 24,
-  "artwork_colors": false,
-  "song_colors": false,
-  "glassy_player": false,
+  "artwork_colors": true,
+  "song_colors": true,
+  "glassy_player": true,
   "layout": { "main": ["artwork", "queue"], "side": ["lyrics"], "home": ["recommendations", "library"] }
 }

@@ -11,13 +11,14 @@ class PackagingTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for folder in ['desktop/icons', 'target/release/bundle']:
+        for folder in ['desktop/icons', 'target/release/bundle', 'artifacts']:
             (self.root / folder).mkdir(parents=True)
         for path, text in {
             'Cargo.toml': '[workspace.package]\nversion="0.1.0"',
             'desktop/tauri.conf.json': '{"version":"0.1.0"}',
             'desktop/icons/lazytune-1024.png': 'icon',
             'LICENSE': 'license', 'THIRD_PARTY_NOTICES.md': 'notices',
+            'artifacts/THIRD_PARTY_LICENSES.html': 'dependency licenses',
             '.env_lastfm': 'private', 'target/release/profile.json': 'private',
         }.items():
             (self.root / path).write_text(text)
@@ -35,7 +36,7 @@ class PackagingTests(unittest.TestCase):
                     (self.root / folder / f'lazytune{extension}').write_bytes(b'app')
                 out = package(self.root, system, machine)
                 names = {f'lazytune-0.1.0-{platform_name}{ext}' for ext in extensions}
-                names |= {'LICENSE', 'THIRD_PARTY_NOTICES.md', 'lazytune-1024.png', f'SHA256SUMS-{platform_name}.txt'}
+                names |= {'LICENSE', 'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_LICENSES.html', 'lazytune-1024.png', f'SHA256SUMS-{platform_name}.txt'}
                 self.assertEqual({p.name for p in out.iterdir()}, names)
                 for line in (out / f'SHA256SUMS-{platform_name}.txt').read_text().splitlines():
                     digest, name = line.split('  ')

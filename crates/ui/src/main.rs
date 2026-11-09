@@ -199,7 +199,9 @@ impl Ui {
         }
     }
     fn load(self, request: CatalogRequest, append: bool) {
-        self.current_query.set(request.clone());
+        if !append {
+            self.current_query.set(request.clone());
+        }
         self.loading.set(true);
         self.error.set(String::new());
         self.generation.update(|g| *g += 1);
@@ -211,7 +213,20 @@ impl Ui {
             }
             self.loading.set(false);
             match result {
-                Ok(page) => {
+                Ok(mut page) => {
+                    if matches!(self.current_query.get_untracked(), CatalogRequest::Browse(id) if id.starts_with("MPRE"))
+                    {
+                        let artwork = if page.artwork.is_empty() {
+                            self.browse_artwork.get_untracked()
+                        } else {
+                            page.artwork.clone()
+                        };
+                        for item in page.shelves.iter_mut().flat_map(|s| &mut s.items) {
+                            if item.playable && item.artwork.is_empty() {
+                                item.artwork.clone_from(&artwork);
+                            }
+                        }
+                    }
                     if append {
                         self.page.update(|p| {
                             p.shelves.extend(page.shelves);

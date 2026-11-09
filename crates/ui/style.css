@@ -40,7 +40,7 @@ main.embedded{overflow:hidden;padding-bottom:20px}.embedded-page{height:100%;dis
 @media(min-width:801px){
   .player-grid:has(.player-main>.now-artwork:first-child):has(.player-side>.lyrics:first-child){grid-template-rows:auto auto auto auto;row-gap:0}
   .player-grid:has(.player-main>.now-artwork:first-child):has(.player-side>.lyrics:first-child)>.player-main,.player-grid:has(.player-main>.now-artwork:first-child):has(.player-side>.lyrics:first-child)>.player-side{display:grid;grid-template-rows:subgrid;grid-row:1 / -1;align-items:start;min-height:0}
-  .player-main{grid-column:1}.player-side{grid-column:2}
+  .player-main{grid-column:1;grid-template-columns:minmax(0,1fr)}.player-side{grid-column:2;grid-template-columns:minmax(0,1fr)}
   .player-grid:has(.player-main>.now-artwork:first-child) .player-side>.lyrics:first-child{contain:size;align-self:stretch;min-height:0;display:flex;flex-direction:column;padding-bottom:0;border-bottom:0}
   .player-grid:has(.player-main>.now-artwork:first-child) .player-side>.lyrics:first-child>.section-heading,.player-grid:has(.player-main>.now-artwork:first-child) .player-side>.lyrics:first-child>.lyric-source{flex-shrink:0}
   .player-grid:has(.player-main>.now-artwork:first-child) .player-side>.lyrics:first-child>.lyric-lines{height:0;min-height:0;max-height:none;flex:1}

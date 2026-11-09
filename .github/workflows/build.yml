@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   build:
+    needs: dependencies
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +51,8 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Linux libraries and media codecs
         if: runner.os == 'Linux'
         run: |
@@ -97,7 +100,7 @@ jobs:
         working-directory: desktop
         env:
           APPLE_SIGNING_IDENTITY: '-'
-        run: tauri bundle --bundles dmg
+        run: tauri bundle --bundles app,dmg
       - name: Linux packages
         if: runner.os == 'Linux'
         working-directory: desktop
@@ -108,6 +111,11 @@ jobs:
           codesign --verify --deep --strict target/release/bundle/macos/lazytune.app
           file target/release/bundle/macos/lazytune.app/Contents/MacOS/lazytune
       - name: Assemble artifacts and checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: dependency-licenses
+          path: artifacts/
+      - name: Package release files
         run: python scripts/package.py
       - uses: actions/upload-artifact@v4
         with:
@@ -121,6 +129,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
+      - name: Collect dependency license texts
+        run: |
+          mkdir -p artifacts
+          cargo about generate --workspace --locked --fail docs/licenses.hbs --output-file artifacts/THIRD_PARTY_LICENSES.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-licenses
+          path: artifacts/THIRD_PARTY_LICENSES.html
+          if-no-files-found: error
 
   draft-release:
     if: github.event_name == 'workflow_dispatch' && inputs.draft_release

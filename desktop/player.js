@@ -13,6 +13,8 @@
   const str = v => String(v ?? '').slice(0, 1000);
   const image = v => (v?.thumbnails ?? []).at(-1)?.url ?? '';
   const track = r => ({ id: str(r?.videoId), title: str(r?.title?.runs?.map(r=>r.text).join('') ?? r?.title?.simpleText), artist: str(r?.longBylineText?.runs?.map(r=>r.text).join('')), artwork: image(r?.thumbnail), album:'',duration:0 });
+  // Buffering and clock offsets do not make a confirmed track unseekable.
+  const canSeek = (p,v,id) => !!id&&p?.getVideoData?.()?.video_id===id&&p?.getPlayerResponse?.()?.videoDetails?.videoId===id&&v?.readyState>0&&Number.isFinite(v.duration)&&v.duration>0&&!p?.classList.contains('ad-showing');
   function report(force = false) {
     if(pendingVolume!==null) {
       const media=$('#movie_player video'),player=api();
@@ -26,7 +28,7 @@
     const consistent=!!d.video_id&&d.video_id===response.videoDetails?.videoId;
     const position=consistent?finite(p?.getCurrentTime?.()??v?.currentTime):0;
     const duration=consistent?finite(p?.getDuration?.()??v?.duration):0;
-    const seekable=consistent&&v?.readyState>0&&!v.seeking&&duration>0&&Math.abs(position-v.currentTime)<1&&!p?.classList.contains('ad-showing');
+    const seekable=duration>0&&canSeek(p,v,d.video_id);
     let items=[];try { items=queue()?.queue?.getItems?.() ?? []; } catch {}
     const tracks=items.slice(0,500).map(i=>track(i.playlistPanelVideoRenderer ?? i.playlistPanelVideoWrapperRenderer?.primaryRenderer?.playlistPanelVideoRenderer)).filter(t=>/^[\w-]{11}$/.test(t.id));
     const snapshot={track:{id:str(d.video_id),title:str(d.title),artist:str(d.author),artist_id:str(response.videoDetails?.channelId),album:'',artwork:image(response.videoDetails?.thumbnail),duration},playing:consistent&&!!v&&!v.paused&&!v.ended,position,duration,seekable,volume:pendingVolume??finite(v?.volume,1),muted:!!v?.muted,liked:$('#like-button-renderer')?.getAttribute('like-status')==='LIKE',ad:p?.classList.contains('ad-showing')??false,ready:!!app()?.networkManager,signed_in:!!window.ytcfg?.get?.('LOGGED_IN'),queue:tracks,error:v?.error?'The media engine could not play this track.':null};
@@ -56,7 +58,7 @@
       case 'seek': {
         const media=must($('#movie_player video'),'Player is not ready');
         const {position,track_id}=c.value;
-        if(p?.getVideoData?.()?.video_id!==track_id||p?.getPlayerResponse?.()?.videoDetails?.videoId!==track_id||!media.readyState||!Number.isFinite(media.duration)||p?.classList.contains('ad-showing'))throw Error('The track changed or is still loading. Try seeking again.');
+        if(!canSeek(p,media,track_id))throw Error('The track changed or is still loading. Try seeking again.');
         must(p?.seekTo,'Seeking is unavailable').call(p,Math.min(position,media.duration),true);break;
       }
       case 'follow': {

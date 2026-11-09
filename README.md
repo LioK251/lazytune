@@ -49,11 +49,11 @@ Enable Last.fm, click **Authorize**, approve access in your browser, and click *
 
 ## Appearance
 
-The default is monochrome. Appearance changes save automatically after a short pause. The sidebar can collapse to icons. Windows/Linux use custom window controls; macOS retains native window chrome. **Colors from artwork** adds a slowly moving gradient derived from the current cover. Motion respects the operating system's reduced-motion preference. Scrollbars are hidden; mouse-wheel and keyboard scrolling remain available.
+The base palette is monochrome. **Colors from artwork**, **Use album artwork as background**, and **Glassy playback bar** are enabled for new profiles and theme resets. Discord Rich Presence and ad blocking are also enabled for new profiles. Existing saved choices are preserved. Appearance changes save automatically after a short pause. The sidebar can collapse to icons. Windows/Linux use custom window controls; macOS retains native window chrome. Cover colors form a slowly moving gradient. Motion respects the operating system's reduced-motion preference. Scrollbars are hidden; mouse-wheel and keyboard scrolling remain available.
 
 Player blocks can move between the main area and the side panel, change order, or be hidden. Themes export appearance only.
 
-Appearance includes a **Glassy playback bar** toggle, off by default. **Automatically select music videos** is an Application setting, also off by default; with it off, closing video returns to audio mode. Playlist and album cards have their own Play buttons, and the playing artist's name opens their page.
+Each appearance effect and integration can be turned off independently. **Automatically select music videos** remains off by default; with it off, closing video returns to audio mode. Playlist and album cards have their own Play buttons, and the playing artist's name opens their page. Older imported themes with omitted optional appearance fields retain their previous behavior.
 
 Artist pages include Follow/Following controls. Volume is saved automatically and restored at startup. Seek commands are bound to the current track and are unavailable during track loading.
 
@@ -79,7 +79,9 @@ On Windows, set `LAZYTUNE_INSPECT=1` before starting a **debug** build to enable
 
 Install Tauri CLI 2 (`npm install --global @tauri-apps/cli@2.12.4`). After the release build, run `tauri bundle --bundles dmg` from `desktop` on macOS, or `tauri bundle --bundles deb,rpm,appimage` on Linux. Windows ships the standalone executable. These packages use the same embedded assets. Run `python scripts/package.py` from the repository root to collect versioned files in `artifacts/package/<platform>-<architecture>/`.
 
-The workflow builds Linux on Ubuntu 22.04 and includes GStreamer in AppImage packages. macOS builds target version 14 or newer and preserve native window controls. Preview DMGs use ad-hoc signatures; that does not replace a Developer ID signature or notarization.
+The workflow builds Linux on Ubuntu 22.04 and includes GStreamer in AppImage packages. macOS builds target version 14 or newer and preserve native window controls. Preview DMGs use ad-hoc signatures; that does not replace a Developer ID signature or notarization. Before local packaging, install `cargo-about` 0.9.3 and generate the bundled notices with `cargo about generate --workspace --locked --fail docs/licenses.hbs --output-file artifacts/THIRD_PARTY_LICENSES.html` (create `artifacts/` first). CI does this automatically.
+
+The dependency audit blocks security advisories. Specific upstream maintenance notices for Leptos/GTK build macros and the zbus 5 stack are documented in `deny.toml`; revisit those exceptions when the parent libraries migrate.
 
 To prepare a release, synchronize the version in `Cargo.toml` and `desktop/tauri.conf.json`, update [release notes](docs/RELEASE_NOTES.md), and run **Actions → Build and package → Run workflow** with **draft_release** enabled. All platform and dependency checks must pass before the workflow creates a draft prerelease. It verifies the downloaded checksums before uploading. Publication is a separate action after reviewing the draft.
 

@@ -86,6 +86,22 @@ test('seek holds its target through delayed reports and older completions', asyn
   assert.equal(await value(page, 'Seek'), 60, 'an older seek must not finish a newer drag');
 });
 
+test('the seek slider accepts a pointer drag while playback reports keep arriving', async t => {
+  const page = await app(t);
+  const slider = page.getByRole('slider', { name: 'Seek', exact: true });
+  const box = await slider.boundingBox();
+  await page.mouse.move(box.x + box.width * .55, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * .25, box.y + box.height / 2, { steps: 4 });
+  const dragged = await value(page, 'Seek');
+  await page.evaluate(() => qa.emit({ position: 101, seekable: true }));
+  assert.equal(await value(page, 'Seek'), dragged);
+  await page.mouse.up();
+  const command = await page.evaluate(() => qa.pending.find(p => p.type === 'seek'));
+  assert.ok(command.value.position > 35 && command.value.position < 55);
+  assert.equal(command.value.track_id, 'dQw4w9WgXcQ');
+});
+
 test('rapid volume input coalesces and a failure restores the reported value', async t => {
   const page = await app(t);
   await input(page, 'Volume', .6);
@@ -178,6 +194,21 @@ test('add to queue stays transparent and still queues the track', async t => {
   assert.equal(await page.getByRole('heading', { name: 'Discover', exact: true }).count(), 1);
 });
 
+test('long queue titles cannot push the artwork over the lyrics', async t => {
+  const page = await app(t);
+  await page.evaluate(() => qa.emit({ queue: [{ ...qa.playback.track, title: 'it was the middle of October and we were young again' }] }));
+  await page.getByRole('button', { name: 'Now Playing', exact: true }).click();
+  for (const width of [1280, 1129, 1024]) {
+    await page.setViewportSize({ width, height: 820 });
+    const bounds = await page.evaluate(() => {
+      const artwork = document.querySelector('.now-artwork').getBoundingClientRect();
+      const lyrics = document.querySelector('.lyrics').getBoundingClientRect();
+      return { artworkRight: artwork.right, lyricsLeft: lyrics.left };
+    });
+    assert.ok(bounds.artworkRight + 20 <= bounds.lyricsLeft, JSON.stringify({ width, ...bounds }));
+  }
+});
+
 test('lyrics match the cover and metadata height as the window and title change', async t => {
   const page = await app(t);
   await page.getByRole('button', { name: 'Now Playing', exact: true }).click();
@@ -210,19 +241,21 @@ test('mute animates the speaker state and unmutes using the same button', async 
   assert.equal(await page.getByRole('button', { name: 'Mute', exact: true }).getAttribute('aria-pressed'), 'false');
 });
 
-test('glassy playback bar defaults off and its appearance setting saves automatically', async t => {
+test('glassy playback bar defaults on and its appearance setting saves automatically', async t => {
   const page = await app(t);
-  assert.equal(await page.locator('.transport').evaluate(e => getComputedStyle(e).backdropFilter), 'none');
+  assert.match(await page.locator('.transport').evaluate(e => getComputedStyle(e).backdropFilter), /blur\(22px\)/);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const glass = page.getByRole('checkbox', { name: /Glassy playback bar/ });
-  assert.equal(await glass.isChecked(), false);
-  await glass.check();
-  await page.waitForFunction(() => document.querySelector('.app').classList.contains('glassy-player'));
-  assert.equal(await page.evaluate(() => qa.appliedTheme.glassy_player), true);
-  assert.match(await page.locator('.transport').evaluate(e => getComputedStyle(e).backdropFilter), /blur\(22px\)/);
+  assert.equal(await glass.isChecked(), true);
+  assert.equal(await page.getByRole('checkbox', { name: /^Colors from artwork/ }).isChecked(), true);
+  assert.equal(await page.getByRole('checkbox', { name: /^Use album artwork as background/ }).isChecked(), true);
   await glass.uncheck();
   await page.waitForFunction(() => !document.querySelector('.app').classList.contains('glassy-player'));
   assert.equal(await page.evaluate(() => qa.appliedTheme.glassy_player), false);
+  assert.equal(await page.locator('.transport').evaluate(e => getComputedStyle(e).backdropFilter), 'none');
+  await glass.check();
+  await page.waitForFunction(() => document.querySelector('.app').classList.contains('glassy-player'));
+  assert.equal(await page.evaluate(() => qa.appliedTheme.glassy_player), true);
 });
 
 test('playlist and album play overlays start playback without opening the collection', async t => {
@@ -240,6 +273,26 @@ test('a failed cover becomes a placeholder instead of a broken image', async t =
   const card = page.locator('.card-open').filter({ hasText: /^Artist$/ }).first();
   await card.locator('.cover.fallback').waitFor();
   assert.equal(await card.locator('img').count(), 0);
+});
+
+test('album tracks without covers use the album artwork, while artist tracks do not', async t => {
+  const page = await app(t);
+  await page.getByRole('button', { name: 'Discover', exact: true }).click();
+  const albumArt = 'https://yt3.googleusercontent.com/album-test';
+  await page.route(albumArt, route => route.fulfill({ contentType: 'image/png', path: path.join(__dirname, '../desktop/icons/icon.png') }));
+  await page.evaluate(albumArt => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async (command, args) => {
+      if (command === 'catalog' && args.query.type === 'browse') return { artwork: albumArt, shelves: [{ title: 'Songs', items: [{ id: 'dQw4w9WgXcQ', title: 'Album track', subtitle: 'Artist', artwork: '', playable: true }] }], continuation: null, subscription: null };
+      return invoke(command, args);
+    };
+  }, albumArt);
+  await page.locator('.card-open').filter({ hasText: /^AlbumArtist$/ }).first().click();
+  const albumTrack = page.locator('.card-open').filter({ hasText: /^Album trackArtist$/ });
+  assert.equal(await albumTrack.locator('img').getAttribute('src'), albumArt);
+  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await page.locator('.card-open').filter({ hasText: /^Artist$/ }).first().click();
+  await page.locator('.card-open').filter({ hasText: /^Album trackArtist$/ }).locator('.cover.fallback').waitFor();
 });
 
 test('automatic music videos default off and the application setting saves', async t => {
