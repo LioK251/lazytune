@@ -51,7 +51,10 @@ async function loadRelease() {
     const releases = await response.json();
     if (!Array.isArray(releases)) throw new Error('Invalid release response');
     const release = releases.find(r => !r.draft && Array.isArray(r.assets) && r.assets.some(a => typeof a.name === 'string' && a.name.startsWith('lazytune-')));
-    if (!release) return;
+    if (!release) {
+      status.textContent = 'Downloads are being prepared.';
+      return;
+    }
     let downloads = 0;
     for (const [platform, suffix, label] of formats) {
       const asset = release.assets.find(a => typeof a.name === 'string' && a.name.startsWith('lazytune-') && a.name.endsWith(`-${suffix}`) && typeof a.browser_download_url === 'string' && a.browser_download_url.startsWith(`${repo}/releases/download/`));
