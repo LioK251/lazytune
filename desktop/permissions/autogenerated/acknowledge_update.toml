@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-acknowledge-update"
+description = "Enables the acknowledge_update command without any pre-configured scope."
+commands.allow = ["acknowledge_update"]
+
+[[permission]]
+identifier = "deny-acknowledge-update"
+description = "Denies the acknowledge_update command without any pre-configured scope."
+commands.deny = ["acknowledge_update"]

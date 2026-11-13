@@ -121,6 +121,7 @@ fn artwork(v: &Value) -> String {
 }
 fn item(v: &Value) -> Option<CatalogItem> {
     let r = [
+        "musicCardShelfRenderer",
         "musicResponsiveListItemRenderer",
         "musicTwoRowItemRenderer",
         "playlistPanelVideoRenderer",
@@ -132,7 +133,7 @@ fn item(v: &Value) -> Option<CatalogItem> {
     if title.is_empty() {
         return None;
     }
-    let endpoint=r.get("navigationEndpoint").or_else(||r.pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint"));
+    let endpoint = r.get("navigationEndpoint").or_else(|| r.get("onTap")).or_else(||r.pointer("/flexColumns/0/musicResponsiveListItemFlexColumnRenderer/text/runs/0/navigationEndpoint"));
     let vid = r
         .get("videoId")
         .and_then(Value::as_str)
@@ -178,6 +179,9 @@ pub fn parse_catalog(value: &Value) -> CatalogPage {
         }
         if let Some(i) = item(v) {
             loose.push(i);
+            if let Some(contents) = v.pointer("/musicCardShelfRenderer/contents") {
+                walk(contents, page, loose, depth + 1);
+            }
             return;
         }
         if page.continuation.is_none() {
@@ -200,6 +204,12 @@ pub fn parse_catalog(value: &Value) -> CatalogPage {
             "musicPlaylistShelfRenderer",
         ] {
             if let Some(r) = v.get(key) {
+                if !loose.is_empty() {
+                    page.shelves.push(Shelf {
+                        title: String::new(),
+                        items: std::mem::take(loose),
+                    });
+                }
                 let title = text(
                     r.get("title")
                         .or_else(|| {
@@ -275,11 +285,47 @@ pub fn parse_catalog(value: &Value) -> CatalogPage {
             items: loose,
         });
     }
+    let mut seen = std::collections::HashSet::new();
+    for shelf in &mut page.shelves {
+        shelf.items.retain(|i| seen.insert(i.id.clone()));
+    }
+    page.shelves.retain(|s| !s.items.is_empty());
     page
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_top_card_precedes_shelves_and_keeps_related_results() {
+        let song = serde_json::json!({"musicResponsiveListItemRenderer": {
+            "title": {"runs": [{"text": "цветы"}]},
+            "playlistItemData": {"videoId": "_5nSnBpjTFY"}
+        }});
+        let input = serde_json::json!({"contents": [
+            {"musicCardShelfRenderer": {
+                "title": {"runs": [{"text": "цветы"}]},
+                "subtitle": {"runs": [{"text": "тёмный принц"}]},
+                "onTap": {"watchEndpoint": {"videoId": "_5nSnBpjTFY"}},
+                "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                    {"url": "https://i.ytimg.com/vi/_5nSnBpjTFY/hqdefault.jpg"}
+                ]}}},
+                "contents": [{"musicTwoRowItemRenderer": {
+                    "title": {"runs": [{"text": "Related song"}]},
+                    "navigationEndpoint": {"watchEndpoint": {"videoId": "dQw4w9WgXcQ"}}
+                }}]
+            }},
+            {"musicShelfRenderer": {"title": {"simpleText": "Songs"}, "contents": [song]}}
+        ]});
+        let page = parse_catalog(&input);
+        let items: Vec<_> = page.shelves.iter().flat_map(|s| &s.items).collect();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, "_5nSnBpjTFY");
+        assert_eq!(items[0].title, "цветы");
+        assert_eq!(items[0].subtitle, "тёмный принц");
+        assert!(items[0].playable);
+        assert!(!items[0].artwork.is_empty());
+        assert_eq!(items[1].id, "dQw4w9WgXcQ");
+    }
     #[test]
     fn generated_mix_and_liked_playlist_artwork_is_preserved() {
         for url in [

@@ -29,6 +29,14 @@ pub enum Density {
     Comfortable,
     Compact,
 }
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualizerMode {
+    #[default]
+    Off,
+    BackgroundPulse,
+    SpectrumBars,
+}
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Block {
@@ -83,6 +91,8 @@ pub struct ThemePack {
     pub song_colors: bool,
     #[serde(default)]
     pub glassy_player: bool,
+    #[serde(default)]
+    pub visualizer: VisualizerMode,
     pub layout: Layout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wallpaper: Option<Wallpaper>,
@@ -99,6 +109,7 @@ impl Default for ThemePack {
             artwork_colors: true,
             song_colors: true,
             glassy_player: true,
+            visualizer: VisualizerMode::Off,
             layout: Layout::default(),
             wallpaper: None,
         }
@@ -202,6 +213,33 @@ mod tests {
             ThemePack::parse(&serde_json::to_vec(&t).unwrap()).unwrap(),
             t
         );
+    }
+    #[test]
+    fn visualizer_modes_roundtrip_and_old_themes_default_off() {
+        for visualizer in [
+            VisualizerMode::Off,
+            VisualizerMode::BackgroundPulse,
+            VisualizerMode::SpectrumBars,
+        ] {
+            let theme = ThemePack {
+                visualizer,
+                ..ThemePack::default()
+            };
+            assert_eq!(
+                ThemePack::parse(&serde_json::to_vec(&theme).unwrap()).unwrap(),
+                theme
+            );
+        }
+        let mut legacy = serde_json::to_value(ThemePack::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("visualizer");
+        assert_eq!(
+            ThemePack::parse(&serde_json::to_vec(&legacy).unwrap())
+                .unwrap()
+                .visualizer,
+            VisualizerMode::Off
+        );
+        legacy["visualizer"] = serde_json::json!("unknown");
+        assert!(ThemePack::parse(&serde_json::to_vec(&legacy).unwrap()).is_err());
     }
     #[test]
     fn rejects_code_duplicates_and_bad_contrast() {

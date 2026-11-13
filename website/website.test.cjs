@@ -69,12 +69,15 @@ test('published assets map to the right platforms and untrusted URLs are rejecte
   const suffixes = ['windows-x64.exe', 'macos-arm64.dmg', 'macos-x64.dmg', 'linux-x64.AppImage', 'linux-x64.deb', 'linux-x64.rpm'];
   const assets = suffixes.map(suffix => ({ name: `lazytune-0.1.0-${suffix}`, size: 12000000, browser_download_url: `${repo}/releases/download/v0.1.0/lazytune-0.1.0-${suffix}` }));
   assets.unshift({ name: 'lazytune-0.1.0-windows-x64.exe', browser_download_url: 'javascript:alert(1)' });
-  const page = await pageFor(t, [{ tag_name: 'v0.1.0', prerelease: true, assets, html_url: `${repo}/releases/tag/v0.1.0` }]);
+  const page = await pageFor(t, [
+    { tag_name: 'v0.2.0', prerelease: true, assets, html_url: `${repo}/releases/tag/v0.2.0` },
+    { tag_name: 'v0.1.0', prerelease: false, assets, html_url: `${repo}/releases/tag/v0.1.0` }
+  ]);
   await page.getByRole('link', { name: 'Download EXE', exact: true }).waitFor();
   assert.equal(await page.locator('.download-links a').count(), 6);
   assert.equal(await page.locator('[data-platform="macos"] .download-links a').count(), 2);
   assert.equal(await page.locator('[data-platform="linux"] .download-links a').count(), 3);
-  assert.match(await page.locator('#release-status').innerText(), /v0.1.0 preview/);
+  assert.match(await page.locator('#release-status').innerText(), /v0.1.0\. Free/);
   assert.ok((await page.locator('.download-links a').evaluateAll(links => links.map(link => link.href))).every(url => url.startsWith(`${repo}/releases/download/`)));
 });
 

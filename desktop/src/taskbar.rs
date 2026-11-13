@@ -57,7 +57,7 @@ impl From<&PlaybackSnapshot> for State {
     fn from(p: &PlaybackSnapshot) -> Self {
         Self {
             available: p.ready && !p.track.id.is_empty(),
-            playing: p.playing,
+            playing: p.playing || p.play_requested,
             liked: p.liked,
             signed_in: p.signed_in,
         }
@@ -247,6 +247,13 @@ mod tests {
     use super::*;
     #[test]
     fn toolbar_icons_states_and_commands() {
+        assert!(
+            State::from(&PlaybackSnapshot {
+                play_requested: true,
+                ..PlaybackSnapshot::default()
+            })
+            .playing
+        );
         let icons: Vec<_> = ICONS
             .into_iter()
             .map(|data| Icon::load(data).unwrap())

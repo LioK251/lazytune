@@ -53,9 +53,13 @@ The base palette is monochrome. **Colors from artwork**, **Use album artwork as 
 
 Player blocks can move between the main area and the side panel, change order, or be hidden. Themes export appearance only.
 
+**Audio visualizer** can show a background pulse or spectrum bars using the music's actual audio. It is off by default and works with artwork or custom backgrounds. It stops drawing when playback pauses, the window is minimized, or reduced motion is enabled.
+
 Each appearance effect and integration can be turned off independently. **Automatically select music videos** remains off by default; with it off, closing video returns to audio mode. Playlist and album cards have their own Play buttons, and the playing artist's name opens their page. Older imported themes with omitted optional appearance fields retain their previous behavior.
 
 Artist pages include Follow/Following controls. Volume is saved automatically and restored at startup. Seek commands are bound to the current track and are unavailable during track loading.
+
+The app checks for a newer stable GitHub release once per launch and notifies once per release version. **View release** opens the download page; installation is manual. Older versions without this checker need a manual upgrade to 0.1.2 first.
 
 `.lazytune-theme` files are strict JSON; see [the schema](themes/schema.json). Imports are previewed before applying. Unknown fields, scripts, CSS, HTML, SVG, URLs, file paths, and integration settings are rejected. A theme can embed one static PNG/JPEG. Limits: 16 MiB per theme, 10 MiB per image, 4096 × 4096 pixels, and 96 MiB decoder allocation. Images are decoded and re-encoded before display. Settings and themes are written atomically.
 

@@ -8,8 +8,8 @@ let browser;
 before(async () => { browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge' }); });
 after(async () => { await browser?.close(); });
 
-async function app(t) {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 820 }, reducedMotion: 'reduce' });
+async function app(t, options = {}) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 }, reducedMotion: options.reducedMotion || 'reduce' });
   page.setDefaultTimeout(5000);
   t.after(() => page.close());
   await page.route('**/*', async route => {
@@ -19,19 +19,22 @@ async function app(t) {
     const contentType = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm' }[path.extname(file)];
     await route.fulfill({ body: await fs.readFile(path.join(__dirname, '../dist', file)), contentType });
   });
-  await page.addInitScript(() => {
+  await page.addInitScript(options => {
     const track = { id: 'dQw4w9WgXcQ', title: 'Track', artist: 'Artist', artist_id: 'UCartist', album: '', artwork: '', duration: 180 };
-    const playback = { track, playing: false, position: 100, duration: 180, volume: .5, muted: false, seekable: true, liked: false, ad: false, ready: true, signed_in: false, queue: [track], error: null };
+    const playback = { track, playing: false, play_requested: false, position: 100, duration: 180, volume: .5, muted: false, seekable: true, liked: false, ad: false, ready: true, signed_in: false, queue: [track], error: null };
     const listeners = {}, pending = [];
     window.qa = {
-      playback, pending,
+      playback, pending, commands: [],
       emit(patch) { Object.assign(playback, patch); listeners.playback?.({ payload: structuredClone(playback) }); },
+      spectrum(bands) { listeners.visualizer?.({ payload: bands }); },
       finish(error = false) { const p = pending.shift(); error ? p.reject('Player unavailable') : p.resolve(null); },
     };
     window.__TAURI__ = {
       event: { listen: async (name, callback) => { listeners[name] = callback; } },
       core: { invoke: async (command, args) => {
-        if (command === 'bootstrap') return { platform: 'windows', settings: {}, playback, version: 'test', warning: null };
+        window.qa.commands.push({ command, args });
+        if (command === 'bootstrap') return { platform: 'windows', settings: {}, playback, version: 'test', warning: options.warning || null };
+        if (command === 'check_update') return options.update || null;
         if (command === 'player_command') return new Promise((resolve, reject) => pending.push({ ...args.command, resolve, reject }));
         if (command === 'catalog') return { shelves: [{ title: 'Artists', items: [{ id: 'UCartist', title: 'Artist', subtitle: '', artwork: 'https://yt3.googleusercontent.com/artist', playable: false }, { id: 'VLplaylist', title: 'Playlist', subtitle: '', artwork: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', playable: false }, { id: 'MPREalbum', title: 'Album', subtitle: 'Artist', artwork: '', playable: false }, { id: track.id, title: 'Track', subtitle: 'Artist', artwork: '', playable: true }] }], continuation: null, subscription: args.query.type==='browse'&&args.query.value==='UCartist'?{channel_id:'UCofficial',followed:false}:null };
         if (command === 'plugin_status') return [];
@@ -41,7 +44,7 @@ async function app(t) {
         return null;
       } },
     };
-  });
+  }, options);
   await page.goto('http://lazytune.test');
   await page.waitForFunction(() => document.querySelector('[aria-label="Seek"]')?.value === '100');
   return page;
@@ -370,4 +373,128 @@ test('an old artist follow button is hidden while another artist loads', async t
   assert.equal(await page.getByRole('button', { name: 'Follow', exact: true }).count(), 0);
   await page.evaluate(() => qa.resolveCatalog({shelves:[],continuation:null,subscription:{channel_id:'UCnext',followed:false}}));
   await page.getByRole('button', { name: 'Follow', exact: true }).waitFor();
+});
+
+test('short windows keep bounded artwork and full song metadata above playback controls', async t => {
+  const page = await app(t);
+  await page.evaluate(() => qa.emit({ track: { ...qa.playback.track, title: 'A longer song title that wraps onto another line in a narrow player', artist: 'An artist with a longer name' } }));
+  await page.getByRole('button', { name: 'Now Playing', exact: true }).click();
+  for (const viewport of [{ width: 1088, height: 742 }, { width: 1024, height: 680 }, { width: 1600, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    const bounds = await page.evaluate(() => {
+      const cover = document.querySelector('.now-artwork>.cover').getBoundingClientRect();
+      const metadata = document.querySelector('.now-artwork>p').getBoundingClientRect();
+      const footer = document.querySelector('.transport').getBoundingClientRect();
+      return { coverWidth: cover.width, coverHeight: cover.height, metadataBottom: metadata.bottom, footerTop: footer.top };
+    });
+    assert.ok(bounds.coverWidth <= 360 && Math.abs(bounds.coverWidth - bounds.coverHeight) < 1, JSON.stringify({ viewport, bounds }));
+    assert.ok(bounds.metadataBottom < bounds.footerTop, JSON.stringify({ viewport, bounds }));
+  }
+});
+
+test('pending playback offers Pause before the media starts', async t => {
+  const page = await app(t);
+  await page.evaluate(() => qa.emit({ playing: false, play_requested: true }));
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  assert.equal(await page.evaluate(() => qa.pending[0].type), 'toggle');
+  await page.evaluate(() => { qa.finish(); qa.emit({ play_requested: false }); });
+  await page.getByRole('button', { name: 'Play', exact: true }).waitFor();
+});
+
+test('catalog requests show errors without loading copy', async t => {
+  const page = await app(t);
+  await page.evaluate(() => {
+    const original = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = (command, args) => command === 'catalog' ? new Promise((resolve, reject) => { qa.rejectCatalog = reject; }) : original(command, args);
+  });
+  await page.getByRole('button', { name: 'Discover', exact: true }).click();
+  assert.equal(await page.getByText(/^Loading/).count(), 0);
+  await page.evaluate(() => qa.rejectCatalog('Search unavailable'));
+  await page.getByRole('alert').filter({ hasText: 'Search unavailable' }).waitFor();
+});
+
+test('visualizer defaults off, autosaves modes and follows real bands without covering controls', async t => {
+  const page = await app(t, { reducedMotion: 'no-preference' });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const mode = page.getByRole('combobox', { name: 'Audio visualizer', exact: true });
+  assert.equal(await mode.inputValue(), 'off');
+  await mode.selectOption('spectrum_bars');
+  await page.waitForFunction(() => qa.appliedTheme?.visualizer === 'spectrum_bars');
+  await page.evaluate(() => qa.emit({ playing: true }));
+  await page.waitForFunction(() => qa.commands.some(c => c.command === 'visualizer_active' && c.args.active));
+  await page.evaluate(() => qa.spectrum(Array.from({ length: 32 }, (_, i) => i * 8)));
+  const bars = page.locator('.visualizer-spectrum>span');
+  assert.equal(await bars.count(), 32);
+  assert.notEqual(await bars.first().getAttribute('style'), await bars.last().getAttribute('style'));
+  assert.deepEqual(await page.locator('.visualizer').evaluate(e => ({ pointerEvents: getComputedStyle(e).pointerEvents, zIndex: getComputedStyle(e).zIndex })), { pointerEvents: 'none', zIndex: '-1' });
+  await mode.selectOption('background_pulse');
+  await page.locator('.visualizer-pulse').waitFor({ state: 'attached' });
+  await page.evaluate(() => qa.spectrum(Array(32).fill(255)));
+  assert.match(await page.locator('.visualizer-pulse').getAttribute('style'), /opacity:0\.220/);
+  await page.evaluate(() => qa.emit({ playing: false }));
+  await page.waitForFunction(() => !document.querySelector('.visualizer').classList.contains('active'));
+  assert.match(await page.locator('.visualizer-pulse').getAttribute('style'), /opacity:0\.000/);
+  assert.equal(await page.evaluate(() => qa.commands.filter(c => c.command === 'visualizer_active').at(-1).args.active), false);
+});
+
+test('hidden windows and reduced motion stop visualizer sampling', async t => {
+  const page = await app(t, { reducedMotion: 'no-preference' });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Audio visualizer', exact: true }).selectOption('spectrum_bars');
+  await page.waitForFunction(() => qa.appliedTheme?.visualizer === 'spectrum_bars');
+  await page.evaluate(() => qa.emit({ playing: true }));
+  await page.waitForFunction(() => document.querySelector('.visualizer').classList.contains('active'));
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForFunction(() => !document.querySelector('.visualizer').classList.contains('active'));
+  await page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
+  await page.waitForFunction(() => document.querySelector('.visualizer').classList.contains('active'));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForFunction(() => !document.querySelector('.visualizer').classList.contains('active'));
+});
+
+test('sign-in Retry recreates only the login surface and Back returns to account', async t => {
+  const page = await app(t);
+  await page.getByRole('button', { name: 'Account', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in with Google', exact: true }).click();
+  await page.waitForFunction(() => qa.commands.some(c => c.command === 'show_player' && c.args.mode === 'login'));
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  const retry = await page.evaluate(() => qa.commands.find(c => c.command === 'show_player' && c.args.retry));
+  assert.equal(retry.args.mode, 'login');
+  assert.ok(retry.args.bounds.width > 0 && retry.args.bounds.height > 0);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Sign in with Google', exact: true }).waitFor();
+  await page.waitForFunction(() => qa.commands.filter(c => c.command === 'show_player').at(-1).args.mode === 'audio');
+});
+
+test('an update is acknowledged after rendering and opens the validated release command', async t => {
+  const page = await app(t, { update: { version: '0.1.2', release_url: 'https://github.com/LioK251/lazytune/releases/tag/v0.1.2' } });
+  await page.getByText('lazytune 0.1.2 is available', { exact: true }).waitFor();
+  await page.waitForFunction(() => qa.commands.some(c => c.command === 'acknowledge_update'));
+  assert.equal(await page.evaluate(() => qa.commands.filter(c => c.command === 'acknowledge_update').length), 1);
+  await page.getByRole('button', { name: 'View release', exact: true }).click();
+  assert.deepEqual(await page.evaluate(() => qa.commands.find(c => c.command === 'open_update').args), { version: '0.1.2' });
+  await page.locator('.update-notice').waitFor({ state: 'detached' });
+});
+
+test('errors take precedence over update notifications and delay acknowledgement until visible', async t => {
+  const page = await app(t, { warning: 'Player unavailable', update: { version: '0.1.2', release_url: 'https://github.com/LioK251/lazytune/releases/tag/v0.1.2' } });
+  await page.getByRole('status').filter({ hasText: 'Player unavailable' }).waitFor();
+  assert.equal(await page.locator('.update-notice').count(), 0);
+  assert.equal(await page.evaluate(() => qa.commands.filter(c => c.command === 'acknowledge_update').length), 0);
+  await page.getByRole('button', { name: 'Dismiss notification', exact: true }).click();
+  await page.locator('.update-notice').waitFor();
+  await page.waitForFunction(() => qa.commands.some(c => c.command === 'acknowledge_update'));
+});
+
+test('playback errors appear on every route once and repeated reports do not prolong the toast', async t => {
+  const page = await app(t);
+  await page.clock.install();
+  await page.evaluate(() => qa.emit({ error: 'Playback unavailable' }));
+  await page.getByRole('status').filter({ hasText: 'Playback unavailable' }).waitFor();
+  await page.clock.fastForward(4000);
+  await page.evaluate(() => qa.emit({ error: 'Playback unavailable', position: 101 }));
+  await page.clock.fastForward(1100);
+  assert.equal(await page.getByRole('status').count(), 0);
+  await page.getByRole('button', { name: 'Now Playing', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Playback unavailable' }).waitFor();
 });

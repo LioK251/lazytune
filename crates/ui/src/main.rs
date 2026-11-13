@@ -108,6 +108,9 @@ struct Ui {
     loading: RwSignal<bool>,
     error: RwSignal<String>,
     notice: RwSignal<String>,
+    update_notice: RwSignal<Option<UpdateInfo>>,
+    spectrum: RwSignal<[u8; 32]>,
+    visualizer_active: RwSignal<bool>,
     query: RwSignal<String>,
     generation: RwSignal<u64>,
     lyrics: RwSignal<Lyrics>,
@@ -123,6 +126,23 @@ struct Ui {
     history: RwSignal<Vec<HistoryEntry>>,
 }
 impl Ui {
+    fn retry_signin(self) {
+        let Some((mode, bounds)) = self.surface_bounds.get_untracked() else {
+            return;
+        };
+        if mode != "login" {
+            return;
+        }
+        spawn_local(async move {
+            self.message(
+                call::<()>(
+                    "show_player",
+                    json!({"mode":"login","bounds":bounds,"retry":true}),
+                )
+                .await,
+            );
+        });
+    }
     fn window_action(self, action: &'static str) {
         spawn_local(async move {
             self.message(call::<()>("window_action", json!({"action":action})).await);
@@ -375,6 +395,16 @@ fn time(seconds: f64) -> String {
     let s = seconds.max(0.0) as u64;
     format!("{}:{:02}", s / 60, s % 60)
 }
+fn visualizer_motion_allowed() -> bool {
+    web_sys::window().is_some_and(|window| {
+        window.document().is_some_and(|document| !document.hidden())
+            && !window
+                .match_media("(prefers-reduced-motion: reduce)")
+                .ok()
+                .flatten()
+                .is_some_and(|query| query.matches())
+    })
+}
 fn theme_style(t: &ThemePack) -> String {
     format!(
         "--bg:{};--surface:{};--text:{};--muted:{};--accent:{};--dim:{};--blur:{}px;--space:{}px",
@@ -438,6 +468,9 @@ fn App() -> impl IntoView {
         loading: RwSignal::new(false),
         error: RwSignal::new(String::new()),
         notice: RwSignal::new(String::new()),
+        update_notice: RwSignal::new(None),
+        spectrum: RwSignal::new([0; 32]),
+        visualizer_active: RwSignal::new(false),
         query: RwSignal::new(String::new()),
         generation: RwSignal::new(0),
         lyrics: RwSignal::new(Lyrics::default()),
@@ -452,6 +485,39 @@ fn App() -> impl IntoView {
         current_query: RwSignal::new(CatalogRequest::Home),
         history: RwSignal::new(vec![]),
     };
+    let motion_allowed = RwSignal::new(visualizer_motion_allowed());
+    if let Some(window) = web_sys::window() {
+        let refresh = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            motion_allowed.set(visualizer_motion_allowed())
+        });
+        if let Some(document) = window.document() {
+            let _ = document.add_event_listener_with_callback(
+                "visibilitychange",
+                refresh.as_ref().unchecked_ref(),
+            );
+        }
+        if let Ok(Some(query)) = window.match_media("(prefers-reduced-motion: reduce)") {
+            let _ =
+                query.add_event_listener_with_callback("change", refresh.as_ref().unchecked_ref());
+        }
+        refresh.forget();
+    }
+    let visualizer_running = Memo::new(move |_| {
+        ui.settings
+            .with(|s| s.theme.visualizer != VisualizerMode::Off)
+            && ui.playback.with(|p| p.playing)
+            && motion_allowed.get()
+    });
+    Effect::new(move || {
+        let active = visualizer_running.get();
+        ui.visualizer_active.set(active);
+        if !active {
+            ui.spectrum.set([0; 32]);
+        }
+        spawn_local(async move {
+            ui.message(call::<()>("visualizer_active", json!({"active":active})).await);
+        });
+    });
     let dialog = NodeRef::<html::Dialog>::new();
     Effect::new(move || {
         let notice = ui.notice.get();
@@ -550,6 +616,11 @@ fn App() -> impl IntoView {
             let metadata_ready =
                 ui.playback.with_untracked(|old| old.duration <= 0.0) && p.duration > 0.0;
             let id_changed = ui.playback.with_untracked(|old| old.track.id != p.track.id);
+            if ui.playback.with_untracked(|old| old.error != p.error) {
+                if let Some(error) = p.error.as_ref().filter(|error| !error.is_empty()) {
+                    ui.notice.set(error.clone());
+                }
+            }
             let ready = p.ready;
             let signed_in = p.signed_in;
             ui.playback.set(p);
@@ -571,6 +642,17 @@ fn App() -> impl IntoView {
             ui.error.set(e)
         }
         let _ = listen::<String>("notice", move |n| ui.notice.set(n)).await;
+        let _ = listen::<[u8; 32]>("visualizer", move |bands| {
+            if ui.visualizer_active.get_untracked() {
+                ui.spectrum.set(bands);
+            }
+        })
+        .await;
+        spawn_local(async move {
+            if let Ok(update) = call::<Option<UpdateInfo>>("check_update", json!({})).await {
+                ui.update_notice.set(update);
+            }
+        });
         set_interval(
             move || {
                 spawn_local(async move {
@@ -588,6 +670,7 @@ fn App() -> impl IntoView {
         style
     }>
       <div class="artwork-background">{move||{let source=match ui.route.get().as_str(){"browse"=>ui.browse_artwork.get(),"player"=>wallpaper.get().unwrap_or_else(||if ui.settings.with(|s|s.theme.artwork_colors){ui.track.with(|t|t.artwork.clone())}else{String::new()}),_=>String::new()};if source.is_empty(){None}else{Some(view!{<img src=source alt=""/>})}}}</div>
+      <Visualizer ui/>
       <a class="skip-link" href="#content">"Skip to content"</a><Show when=move||{let p=ui.platform.get();!p.is_empty()&&p!="macos"}><header class="titlebar"><div class="title-drag" on:mousedown=move|e:web_sys::MouseEvent|{if e.button()==0{if e.detail()==2{ui.window_action("maximize")}else{ui.window_action("drag")}}}/><div class="window-controls"><button aria-label="Minimize window" on:click=move|_|ui.window_action("minimize")><svg viewBox="0 0 16 16"><path d="M3 8h10"/></svg></button><button aria-label="Maximize or restore window" on:click=move|_|ui.window_action("maximize")><svg viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9"/></svg></button><button class="window-close" aria-label="Close window" on:click=move|_|ui.window_action("close")><Icon name="close"/></button></div></header></Show><div class="shell" class:sidebar-collapsed=move||ui.settings.with(|s|s.sidebar_collapsed)><aside class="sidebar">
         <a class="brand" href="#" on:click=move|e|{e.prevent_default();ui.navigate("home");}><svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h3.5v12.5h7.3V20H5z" fill="currentColor"/><path d="m12 5 8 4.7-8 4.7z" fill="currentColor" opacity="0.65"/></svg><span>"lazytune"</span></a>
         <nav aria-label="Main navigation"><Nav ui route="home" label="Discover" icon="home"/><Nav ui route="library" label="Library" icon="library"/><Nav ui route="liked" label="Liked Music" icon="heart"/><Nav ui route="player" label="Now Playing" icon="music"/></nav>
@@ -597,14 +680,46 @@ fn App() -> impl IntoView {
         <main id="content" tabindex="-1" class:embedded=move||matches!(ui.route.get().as_str(),"video"|"signin")>{move||match ui.route.get().as_str(){"settings"=>view!{<SettingsView ui/>}.into_any(),"player"=>view!{<PlayerView ui/>}.into_any(),"video"|"signin"=>view!{<EmbeddedPlayer ui/>}.into_any(),"account"=>view!{<AccountView ui/>}.into_any(),_=>view!{<CatalogView ui/>}.into_any()}}</main>
       </div></div><Transport ui/>
       <Show when=move||!ui.notice.get().is_empty()><div class="toast" role="status"><span>{move||ui.notice.get()}</span><Show when=move||ui.notice.with(|n|n.contains("Skipped a SponsorBlock"))><button class="text-button" on:click=move|_|spawn_local(async move{ui.message(call::<()>("undo_skip",json!({})).await);})>"Undo"</button></Show><button class="icon-button" aria-label="Dismiss notification" on:click=move|_|ui.notice.set(String::new())><Icon name="close"/></button></div></Show>
+      <Show when=move||ui.notice.get().is_empty()&&ui.update_notice.with(Option::is_some)>{move||ui.update_notice.get().map(|update|view!{<UpdateNotice ui update/>})}</Show>
       <dialog class="theme-modal" node_ref=dialog on:cancel=move|_:web_sys::Event|ui.preview.set(None)><h2>{move||ui.preview.get().map(|t|t.name).unwrap_or_default()}</h2><p>"Apply this theme’s colors and layout?"</p><div class="preview-swatches">{move||ui.preview.get().map(|t|vec![t.palette.background,t.palette.surface,t.palette.accent,t.palette.text].into_iter().map(|c|view!{<span style=format!("background:{c}")/>}).collect_view())}</div><div class="actions"><button class="secondary" on:click=move|_|ui.preview.set(None)>"Cancel"</button><button class="primary" on:click=move|_|{if let Some(t)=ui.preview.get_untracked(){ui.apply(t);}}>"Apply theme"</button></div></dialog>
     </div>}
+}
+#[component]
+fn Visualizer(ui: Ui) -> impl IntoView {
+    view! {<div class="visualizer" aria-hidden="true" class:active=move||ui.visualizer_active.get()>
+        <Show when=move||ui.settings.with(|s|s.theme.visualizer==VisualizerMode::BackgroundPulse)><div class="visualizer-pulse" style=move||{
+            let energy=ui.spectrum.with(|bands|(bands.iter().map(|band|(*band as f64/255.0).powi(2)).sum::<f64>()/32.0).sqrt());
+            format!("opacity:{:.3};transform:scale({:.3})",energy*0.22,1.0+energy*0.12)
+        }/></Show>
+        <Show when=move||ui.settings.with(|s|s.theme.visualizer==VisualizerMode::SpectrumBars)><div class="visualizer-spectrum">{(0..32).map(|i|view!{<span style=move||format!("transform:scaleY({:.3})",ui.spectrum.with(|bands|bands[i] as f64/255.0))/>}).collect_view()}</div></Show>
+    </div>}
+}
+#[component]
+fn UpdateNotice(ui: Ui, update: UpdateInfo) -> impl IntoView {
+    let element = NodeRef::<html::Div>::new();
+    let acknowledged = RwSignal::new(false);
+    let version = StoredValue::new(update.version);
+    Effect::new(move || {
+        if element.get().is_some() && !acknowledged.get_untracked() {
+            acknowledged.set(true);
+            spawn_local(async move {
+                ui.message(
+                    call::<()>("acknowledge_update", json!({"version":version.get_value()})).await,
+                );
+            });
+        }
+    });
+    view! {<div class="toast update-notice" role="status" node_ref=element><span>{format!("lazytune {} is available",version.get_value())}</span><button class="text-button" on:click=move|_|spawn_local(async move{
+        match call::<()>("open_update",json!({"version":version.get_value()})).await {
+            Ok(())=>ui.update_notice.set(None),
+            Err(error)=>ui.notice.set(error),
+        }
+    })>"View release"</button><button class="icon-button" aria-label="Dismiss update notification" on:click=move|_|ui.update_notice.set(None)><Icon name="close"/></button></div>}
 }
 #[component]
 fn CatalogView(ui: Ui) -> impl IntoView {
     view! {
       <div class="page-heading"><h1 class:selectable=move||ui.route.get()=="browse">{move||match ui.route.get().as_str(){"home"=>"Discover".into(),"search"=>format!("Results for “{}”",ui.query.get()),"library"=>"Library".into(),"liked"=>"Liked Music".into(),_=>ui.browse_title.get()}}</h1><Show when=move||ui.route.get()=="browse"&&!ui.loading.get()&&ui.page.with(|p|p.subscription.is_some())><FollowButton ui/></Show></div>
-      <Show when=move||ui.loading.get()><p class="muted" role="status">"Loading…"</p></Show>
       <Show when=move||!ui.error.get().is_empty()><section class="empty-state" role="alert"><p>{move||ui.error.get()}</p><div class="actions"><button class="secondary" on:click=move|_|ui.load(ui.current_query.get_untracked(),false)>"Retry"</button><button class="secondary" on:click=move|_|ui.show_player("login")>"Open YouTube Music"</button></div></section></Show>
       {move||{
         let home = ui.route.get()=="home";
@@ -658,8 +773,8 @@ fn Transport(ui: Ui) -> impl IntoView {
     <div class="transport-center"><div class="transport-buttons">
       <button class="icon-button subtle" aria-label="Shuffle queue" on:click=move|_|ui.command(PlayerCommand::Shuffle)><Icon name="shuffle"/></button>
       <button class="icon-button" aria-label="Previous track" on:click=move|_|ui.command(PlayerCommand::Previous)><Icon name="previous"/></button>
-      <button class="play-button" aria-label=move||if ui.playback.with(|p|p.playing){"Pause"}else{"Play"} on:click=move|_|ui.command(PlayerCommand::Toggle)>
-        {move||view!{<Icon name=if ui.playback.with(|p|p.playing){"pause"}else{"play"}/>}}
+      <button class="play-button" aria-label=move||if ui.playback.with(|p|p.playing||p.play_requested){"Pause"}else{"Play"} on:click=move|_|ui.command(PlayerCommand::Toggle)>
+        {move||view!{<Icon name=if ui.playback.with(|p|p.playing||p.play_requested){"pause"}else{"play"}/>}}
       </button>
       <button class="icon-button" aria-label="Next track" on:click=move|_|ui.command(PlayerCommand::Next)><Icon name="next"/></button>
       <button class="icon-button subtle" aria-label="Cycle repeat mode" on:click=move|_|ui.command(PlayerCommand::Repeat)><Icon name="repeat"/></button>
@@ -669,11 +784,11 @@ fn Transport(ui: Ui) -> impl IntoView {
 }
 #[component]
 fn EmbeddedPlayer(ui: Ui) -> impl IntoView {
-    view! {<section class="embedded-page"><Show when=move||ui.route.get()=="signin"><div class="page-heading"><h1>"Google sign-in"</h1><button class="secondary" on:click=move|_|ui.navigate("account")>"Back"</button></div></Show><div id="player-surface"/></section>}
+    view! {<section class="embedded-page"><Show when=move||ui.route.get()=="signin"><div class="page-heading"><h1>"Google sign-in"</h1><div class="actions"><button class="secondary" on:click=move|_|ui.retry_signin()>"Retry"</button><button class="secondary" on:click=move|_|ui.navigate("account")>"Back"</button></div></div></Show><div id="player-surface"/></section>}
 }
 #[component]
 fn AccountView(ui: Ui) -> impl IntoView {
-    view! {<section class="account-page"><svg class="account-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h3.5v12.5h7.3V20H5z" fill="currentColor"/><path d="m12 5 8 4.7-8 4.7z" fill="currentColor" opacity="0.65"/></svg><h1>"YouTube Music"</h1><Show when=move||ui.playback.with(|p|p.signed_in) fallback=move||view!{<p>"Sign in to access your library, playlists, and recommendations."</p><button class="primary google-signin" on:click=move|_|ui.navigate("signin")><strong>"G"</strong>"Sign in with Google"</button><small>"Your session is stored on this device."</small>}><p>"Your account is connected."</p><div class="actions"><button class="primary" on:click=move|_|ui.navigate("library")>"Open library"</button><button class="secondary" on:click=move|_|spawn_local(async move{ui.message(call::<()>("logout",json!({})).await);ui.page.set(CatalogPage::default());ui.home_library.set(CatalogPage::default());})>"Sign out"</button></div></Show></section>}
+    view! {<section class="account-page"><svg class="account-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h3.5v12.5h7.3V20H5z" fill="currentColor"/><path d="m12 5 8 4.7-8 4.7z" fill="currentColor" opacity="0.65"/></svg><h1>"YouTube Music"</h1><Show when=move||ui.playback.with(|p|p.signed_in) fallback=move||view!{<p>"Sign in to access your library, playlists, and recommendations."</p><button class="primary google-signin" on:click=move|_|ui.navigate("signin")><strong aria-hidden="true">"G"</strong>"Sign in with Google"</button><small>"Your session is stored on this device."</small>}><p>"Your account is connected."</p><div class="actions"><button class="primary" on:click=move|_|ui.navigate("library")>"Open library"</button><button class="secondary" on:click=move|_|spawn_local(async move{ui.message(call::<()>("logout",json!({})).await);ui.page.set(CatalogPage::default());ui.home_library.set(CatalogPage::default());})>"Sign out"</button></div></Show></section>}
 }
 #[component]
 fn PlayerView(ui: Ui) -> impl IntoView {

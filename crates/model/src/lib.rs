@@ -47,6 +47,8 @@ pub fn artwork_url(value: &str) -> bool {
 pub struct PlaybackSnapshot {
     pub track: Track,
     pub playing: bool,
+    #[serde(default)]
+    pub play_requested: bool,
     pub position: f64,
     pub duration: f64,
     pub volume: f64,
@@ -264,6 +266,11 @@ pub struct Bootstrap {
     pub playback: PlaybackSnapshot,
     pub warning: Option<String>,
     pub version: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub release_url: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]

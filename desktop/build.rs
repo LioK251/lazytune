@@ -28,6 +28,10 @@ fn main() {
             "lastfm_finish",
             "plugin_status",
             "undo_skip",
+            "check_update",
+            "acknowledge_update",
+            "open_update",
+            "visualizer_active",
         ]),
     ))
     .expect("Tauri build configuration");

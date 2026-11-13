@@ -1,7 +1,14 @@
-Fixes the “YouTube Music is not optimized for your browser” message that blocked account sign-in on macOS.
+Fixes playback startup, unexpected stops, missing search results, and macOS account sign-in.
 
-- The macOS player now sends Safari browser identification, so YouTube Music loads instead of rejecting the embedded WebKit browser.
-- The version shown in Settings and sent to integrations now follows the packaged app version.
+- Play starts a selected track without toggling video. Early navigation waits for the player to be ready.
+- Unexpected stops get bounded recovery, including in the background. Pause, Stop, and ended tracks are respected.
+- Temporary metadata updates no longer change the playback state or mix song timelines.
+- Search includes YouTube Music's top-result cards, including the exact result for `цветы темный принц`.
+- macOS Google sign-in uses a separate view inside the app and preserves the existing account profile.
+- Now Playing artwork is smaller and responds to window height, keeping the title, artist, and lyrics visible.
+- Appearance includes optional background pulse and spectrum bars driven by the music audio. Both are off by default.
+- An update notice appears once per newer stable release. It opens the release page; updates are installed manually.
+- Loading text has been removed; errors and retry actions remain.
 
 ### Installation
 
@@ -13,8 +20,6 @@ Choose the file for your operating system. `arm64` is Apple Silicon; `x64` is In
 
 SHA-256 checksums are supplied per platform. Windows executables are not Authenticode signed and may trigger SmartScreen warnings. macOS notarization and Windows signing are pending.
 
-### Known limitations
-
-The original browser rejection, corrected YouTube Music page, and Google sign-in form were checked in WebKit 27.2. Windows sign-in, playback, seeking, and volume persistence have been exercised locally. Completing account authorization on a Mac, native macOS/Linux playback, media keys, suspend/resume, long background playback, and live scrobbling still need hardware verification.
+Install 0.1.2 manually if you use an earlier version; older versions do not contain the update checker. Settings, volume, themes, and account sessions are preserved. Visualization requires working Web Audio support in the platform's browser engine.
 
 YouTube Music availability, account restrictions, and subscription rules still apply. lazytune is an independent client and is not affiliated with Google or YouTube.

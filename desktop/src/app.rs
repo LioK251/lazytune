@@ -20,14 +20,18 @@ pub struct AppState {
     pub directory: PathBuf,
     pub warning: Mutex<Option<String>>,
     pub pending: Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>,
+    pub dispatch: Mutex<()>,
     pub next_id: AtomicU64,
     pub volume_revision: AtomicU64,
+    pub control_revision: AtomicU64,
     pub generation: AtomicU64,
     pub changed: Notify,
     pub statuses: Mutex<HashMap<String, PluginStatus>>,
     pub client: reqwest::Client,
     pub undo: Mutex<Option<(String, f64, f64)>>,
     pub player_mode: Mutex<String>,
+    #[cfg(target_os = "macos")]
+    pub account: crate::account::State,
     pub preserve_settings: AtomicBool,
     pub tray_available: AtomicBool,
 }
@@ -51,14 +55,18 @@ impl AppState {
             directory,
             warning: Mutex::new(warning),
             pending: Mutex::new(HashMap::new()),
+            dispatch: Mutex::new(()),
             next_id: AtomicU64::new(1),
             volume_revision: AtomicU64::new(0),
+            control_revision: AtomicU64::new(0),
             generation: AtomicU64::new(0),
             changed: Notify::new(),
             statuses: Mutex::new(HashMap::new()),
             client,
             undo: Mutex::new(None),
             player_mode: Mutex::new("audio".into()),
+            #[cfg(target_os = "macos")]
+            account: crate::account::State::default(),
             preserve_settings,
             tray_available: AtomicBool::new(false),
         })
@@ -100,11 +108,15 @@ pub fn focus(app: &AppHandle) {
 pub fn configure_player(app: &AppHandle) {
     let s = app.state::<AppState>();
     let settings = s.settings.lock().unwrap();
-    let (enabled, auto_video) = (settings.plugins.adblock, settings.auto_video);
+    let (enabled, auto_video, visualizer) = (
+        settings.plugins.adblock,
+        settings.auto_video,
+        settings.theme.visualizer != VisualizerMode::Off && crate::visualizer::active(),
+    );
     drop(settings);
     if let Some(w) = app.get_webview("player") {
         let _ = w.eval(format!(
-            "window.__lazytune?.configure({{adblock:{enabled},auto_video:{auto_video}}})"
+            "window.__lazytune?.configure({{adblock:{enabled},auto_video:{auto_video},visualizer:{visualizer}}})"
         ));
     }
 }
@@ -124,20 +136,28 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
         serde_json::to_string(&settings.volume).map_err(|e| e.to_string())?,
         include_str!("../player.js")
     ))
-    .on_navigation(|url| {
-        url.scheme() == "https"
-            && matches!(
-                url.host_str(),
-                Some(
-                    "music.youtube.com"
-                        | "accounts.google.com"
-                        | "www.youtube.com"
-                        | "consent.youtube.com"
-                        | "consent.google.com"
-                )
-            )
-    })
-    .on_page_load(|window, _| configure_player(window.app_handle()));
+    .on_navigation(crate::account::navigation_allowed)
+    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+    .on_page_load(|window, _| {
+        configure_player(window.app_handle());
+        let mode = window
+            .app_handle()
+            .state::<AppState>()
+            .player_mode
+            .lock()
+            .unwrap()
+            .clone();
+        #[cfg(target_os = "macos")]
+        let mode = if mode == "login" {
+            "audio".to_string()
+        } else {
+            mode
+        };
+        let _ = window.eval(format!(
+            "window.__lazytune?.mode({})",
+            serde_json::to_string(&mode).unwrap()
+        ));
+    });
     #[cfg(debug_assertions)]
     if std::env::var_os("LAZYTUNE_INSPECT").is_some() {
         builder = builder.additional_browser_args(
@@ -151,13 +171,13 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         builder = builder
-            .data_store_identifier(*b"lazytune-player1")
+            .data_store_identifier(crate::account::PROFILE)
             .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
     }
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         // WebKit's default user agent lacks Safari identifiers and YouTube rejects it.
-        builder=builder.user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
+        builder = builder.user_agent(crate::account::WEBKIT_USER_AGENT);
     }
     let parent = app.get_window("main").ok_or("Main window unavailable")?;
     let view = parent
@@ -171,24 +191,56 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn prepare_dispatch(kind: &str, value: &Value, revision: &AtomicU64) -> bool {
+    if kind == "restore" {
+        return value.get("control_revision").and_then(Value::as_u64)
+            == Some(revision.load(Ordering::SeqCst));
+    }
+    if kind == "command"
+        && matches!(
+            value.get("type").and_then(Value::as_str),
+            Some(
+                "play"
+                    | "play_collection"
+                    | "next"
+                    | "previous"
+                    | "toggle"
+                    | "pause"
+                    | "resume"
+                    | "seek"
+            )
+        )
+    {
+        revision.fetch_add(1, Ordering::SeqCst);
+    }
+    true
+}
+
 pub async fn request(app: &AppHandle, kind: &str, value: Value) -> Result<Value, String> {
     let s = app.state::<AppState>();
     let id = s.next_id.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = oneshot::channel();
-    {
-        let mut pending = s.pending.lock().map_err(|_| "Player state unavailable")?;
-        if pending.len() >= 24 {
-            return Err("Too many pending requests; try again shortly".into());
+    let result = {
+        // A restore's revision check and transport evals must enter the native queue in one order.
+        let _dispatch = s.dispatch.lock().map_err(|_| "Player state unavailable")?;
+        if !prepare_dispatch(kind, &value, &s.control_revision) {
+            return Ok(Value::Null);
         }
-        pending.insert(id, tx);
-    }
-    let result = (|| {
-        let window = app
-            .get_webview("player")
-            .ok_or("Player window is unavailable")?;
-        let encoded = serde_json::to_string(&(id, kind, value)).map_err(|e| e.to_string())?;
-        window.eval(format!("window.__lazytune ? window.__lazytune.request(...{encoded}) : window.__TAURI_INTERNALS__?.invoke('player_report',{{report:JSON.stringify({{kind:'reply',id:{id},error:'YouTube Music is still starting'}})}})" )).map_err(|e|e.to_string())
-    })();
+        {
+            let mut pending = s.pending.lock().map_err(|_| "Player state unavailable")?;
+            if pending.len() >= 24 {
+                return Err("Too many pending requests; try again shortly".into());
+            }
+            pending.insert(id, tx);
+        }
+        (|| {
+            let window = app
+                .get_webview("player")
+                .ok_or("Player window is unavailable")?;
+            let encoded = serde_json::to_string(&(id, kind, value)).map_err(|e| e.to_string())?;
+            window.eval(format!("window.__lazytune ? window.__lazytune.request(...{encoded}) : window.__TAURI_INTERNALS__?.invoke('player_report',{{report:JSON.stringify({{kind:'reply',id:{id},error:'YouTube Music is still starting'}})}})" )).map_err(|e|e.to_string())
+        })()
+    };
     if let Err(e) = result {
         s.pending.lock().unwrap().remove(&id);
         return Err(e);
@@ -278,6 +330,12 @@ pub async fn player_command(
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Report {
+    Spectrum {
+        bands: [u8; 32],
+    },
+    VisualizerError {
+        error: String,
+    },
     Snapshot {
         snapshot: PlaybackSnapshot,
     },
@@ -305,6 +363,20 @@ pub fn player_report(window: Webview, app: AppHandle, report: String) -> Result<
     }
     let s = app.state::<AppState>();
     match serde_json::from_str::<Report>(&report).map_err(|_| "Invalid player message")? {
+        Report::Spectrum { bands } => {
+            if crate::visualizer::active() {
+                let _ = app.emit_to("main", "visualizer", bands);
+            }
+        }
+        Report::VisualizerError { error } => {
+            if crate::visualizer::active() {
+                let _ = app.emit_to(
+                    "main",
+                    "notice",
+                    error.chars().take(400).collect::<String>(),
+                );
+            }
+        }
         Report::Snapshot { snapshot } => {
             snapshot.validate()?;
             *s.playback.lock().unwrap() = snapshot.clone();
@@ -477,6 +549,7 @@ pub async fn show_player(
     app: AppHandle,
     mode: String,
     bounds: Option<SurfaceBounds>,
+    retry: Option<bool>,
 ) -> Result<(), String> {
     local(&window)?;
     if !["login", "video", "audio"].contains(&mode.as_str()) {
@@ -485,31 +558,13 @@ pub async fn show_player(
     let view = app
         .get_webview("player")
         .ok_or("Player is still starting")?;
-    let previous = std::mem::replace(
-        &mut *app.state::<AppState>().player_mode.lock().unwrap(),
-        mode.clone(),
-    );
     if mode == "audio" {
+        #[cfg(target_os = "macos")]
+        crate::account::close(&app)?;
+        *app.state::<AppState>().player_mode.lock().unwrap() = mode;
         view.eval("window.__lazytune?.mode('audio')")
             .map_err(|e| e.to_string())?;
         return view.hide().map_err(|e| e.to_string());
-    }
-    if mode == "login"
-        && previous != "login"
-        && !app.state::<AppState>().playback.lock().unwrap().signed_in
-        && view.url().map_err(|e| e.to_string())?.host_str() == Some("music.youtube.com")
-    {
-        let mut next = url::Url::parse("https://www.youtube.com/signin").unwrap();
-        next.query_pairs_mut()
-            .append_pair("action_handle_signin", "true")
-            .append_pair("app", "desktop")
-            .append_pair("next", "https://music.youtube.com/");
-        let mut login = url::Url::parse("https://accounts.google.com/ServiceLogin").unwrap();
-        login
-            .query_pairs_mut()
-            .append_pair("service", "youtube")
-            .append_pair("continue", next.as_str());
-        view.navigate(login).map_err(|e| e.to_string())?;
     }
     let bounds = bounds.ok_or("Missing player position")?;
     bounds.validate()?;
@@ -521,6 +576,32 @@ pub async fn show_player(
     if bounds.x + bounds.width > size.width + 1.0 || bounds.y + bounds.height > size.height + 1.0 {
         return Err("Player surface is outside the window".into());
     }
+    let previous = std::mem::replace(
+        &mut *app.state::<AppState>().player_mode.lock().unwrap(),
+        mode.clone(),
+    );
+    #[cfg(target_os = "macos")]
+    {
+        if mode == "login" {
+            view.hide().map_err(|e| e.to_string())?;
+            return crate::account::show(&app, &bounds, retry.unwrap_or(false));
+        }
+        crate::account::close(&app)?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    if mode == "login"
+        && (previous != "login" || retry.unwrap_or(false))
+        && !app.state::<AppState>().playback.lock().unwrap().signed_in
+        && (retry.unwrap_or(false)
+            || view.url().map_err(|e| e.to_string())?.host_str() == Some("music.youtube.com"))
+    {
+        view.eval("window.__lazytune?.mode('login')")
+            .map_err(|e| e.to_string())?;
+        view.navigate(crate::account::login_url())
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    let _ = previous;
     view.set_bounds(tauri::Rect {
         position: tauri::LogicalPosition::new(bounds.x, bounds.y).into(),
         size: tauri::LogicalSize::new(bounds.width, bounds.height).into(),
@@ -536,6 +617,8 @@ pub async fn show_player(
 #[tauri::command]
 pub async fn logout(window: Webview, app: AppHandle) -> Result<(), String> {
     local(&window)?;
+    #[cfg(target_os = "macos")]
+    crate::account::cancel(&app)?;
     if let Some(w) = app.get_webview("player") {
         w.clear_all_browsing_data().map_err(|e| e.to_string())?;
         w.navigate("https://music.youtube.com/".parse().unwrap())
@@ -631,4 +714,59 @@ pub async fn undo_skip(window: Webview, app: AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn user_transport_invalidates_a_pending_account_restore() {
+        let revision = AtomicU64::new(0);
+        let restore = serde_json::json!({"control_revision":0});
+        assert!(prepare_dispatch("restore", &restore, &revision));
+        for command in [
+            "pause",
+            "play",
+            "next",
+            "previous",
+            "seek",
+            "toggle",
+            "resume",
+            "play_collection",
+        ] {
+            assert!(prepare_dispatch(
+                "command",
+                &serde_json::json!({"type":command}),
+                &revision
+            ));
+            assert!(!prepare_dispatch("restore", &restore, &revision));
+        }
+        let current = revision.load(Ordering::SeqCst);
+        assert!(prepare_dispatch(
+            "command",
+            &serde_json::json!({"type":"volume"}),
+            &revision
+        ));
+        assert_eq!(revision.load(Ordering::SeqCst), current);
+        assert!(prepare_dispatch(
+            "restore",
+            &serde_json::json!({"control_revision":current}),
+            &revision
+        ));
+        assert!(!prepare_dispatch(
+            "restore",
+            &serde_json::json!({}),
+            &revision
+        ));
+    }
+    #[test]
+    fn spectrum_reports_require_32_byte_bands() {
+        let bands = [128u8; 32];
+        let valid = serde_json::json!({"kind":"spectrum", "bands":bands});
+        assert!(serde_json::from_value::<Report>(valid).is_ok());
+        for bands in [vec![0; 31], vec![0; 33], vec![256; 32], vec![-1; 32]] {
+            let invalid = serde_json::json!({"kind":"spectrum", "bands":bands});
+            assert!(serde_json::from_value::<Report>(invalid).is_err());
+        }
+    }
 }

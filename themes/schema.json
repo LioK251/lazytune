@@ -21,6 +21,7 @@
     "artwork_colors": { "type": "boolean" },
     "song_colors": { "type": "boolean", "default": false },
     "glassy_player": { "type": "boolean", "default": false },
+    "visualizer": { "enum": ["off", "background_pulse", "spectrum_bars"], "default": "off" },
     "layout": {
       "type": "object", "additionalProperties": false, "required": ["main", "side", "home"],
       "properties": {

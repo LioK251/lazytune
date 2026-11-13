@@ -50,7 +50,7 @@ async function loadRelease() {
     if (!response.ok) throw new Error('Releases unavailable');
     const releases = await response.json();
     if (!Array.isArray(releases)) throw new Error('Invalid release response');
-    const release = releases.find(r => !r.draft && Array.isArray(r.assets) && r.assets.some(a => typeof a.name === 'string' && a.name.startsWith('lazytune-')));
+    const release = releases.find(r => !r.draft && !r.prerelease && Array.isArray(r.assets) && r.assets.some(a => typeof a.name === 'string' && a.name.startsWith('lazytune-')));
     if (!release) {
       status.textContent = 'Downloads are being prepared.';
       return;
