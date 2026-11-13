@@ -33,7 +33,7 @@ async function app(t, options = {}) {
       event: { listen: async (name, callback) => { listeners[name] = callback; } },
       core: { invoke: async (command, args) => {
         window.qa.commands.push({ command, args });
-        if (command === 'bootstrap') return { platform: 'windows', settings: {}, playback, version: 'test', warning: options.warning || null };
+        if (command === 'bootstrap') return { platform: options.platform || 'windows', settings: options.settings || {}, playback, version: 'test', warning: options.warning || null };
         if (command === 'check_update') return options.update || null;
         if (command === 'player_command') return new Promise((resolve, reject) => pending.push({ ...args.command, resolve, reject }));
         if (command === 'catalog') return { shelves: [{ title: 'Artists', items: [{ id: 'UCartist', title: 'Artist', subtitle: '', artwork: 'https://yt3.googleusercontent.com/artist', playable: false }, { id: 'VLplaylist', title: 'Playlist', subtitle: '', artwork: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', playable: false }, { id: 'MPREalbum', title: 'Album', subtitle: 'Artist', artwork: '', playable: false }, { id: track.id, title: 'Track', subtitle: 'Artist', artwork: '', playable: true }] }], continuation: null, subscription: args.query.type==='browse'&&args.query.value==='UCartist'?{channel_id:'UCofficial',followed:false}:null };
@@ -450,6 +450,24 @@ test('hidden windows and reduced motion stop visualizer sampling', async t => {
   await page.waitForFunction(() => document.querySelector('.visualizer').classList.contains('active'));
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.waitForFunction(() => !document.querySelector('.visualizer').classList.contains('active'));
+});
+
+test('WebKit platforms disable visualization while preserving imported theme modes', async t => {
+  const theme = JSON.parse(await fs.readFile(path.join(__dirname, '../themes/monochrome.lazytune-theme'), 'utf8'));
+  for (const platform of ['macos', 'linux']) {
+    for (const visualizer of ['background_pulse', 'spectrum_bars']) {
+      const page = await app(t, { platform, reducedMotion: 'no-preference', settings: { theme: { ...theme, visualizer } } });
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      const selector = page.getByRole('combobox', { name: 'Audio visualizer', exact: true });
+      assert.equal(await selector.isDisabled(), true);
+      assert.equal(await selector.inputValue(), visualizer, 'the imported preference remains available for theme export');
+      await page.getByText('Audio capture is unavailable in this webview.', { exact: true }).waitFor();
+      await page.evaluate(() => { qa.emit({ playing: true, play_requested: true }); qa.spectrum(Array(32).fill(255)); });
+      assert.equal(await page.locator('.visualizer').count(), 0, 'unsupported engines do not render the effect');
+      assert.equal(await page.evaluate(() => qa.commands.some(c => c.command === 'visualizer_active' && c.args.active)), false, 'unsupported engines never request sampling');
+      assert.equal(await page.evaluate(() => qa.appliedTheme), undefined, 'runtime gating must not rewrite the saved theme');
+    }
+  }
 });
 
 test('sign-in Retry recreates only the login surface and Back returns to account', async t => {

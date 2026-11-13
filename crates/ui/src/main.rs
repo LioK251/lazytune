@@ -126,6 +126,9 @@ struct Ui {
     history: RwSignal<Vec<HistoryEntry>>,
 }
 impl Ui {
+    fn visualizer_supported(self) -> bool {
+        self.platform.with(|platform| platform == "windows")
+    }
     fn retry_signin(self) {
         let Some((mode, bounds)) = self.surface_bounds.get_untracked() else {
             return;
@@ -503,8 +506,10 @@ fn App() -> impl IntoView {
         refresh.forget();
     }
     let visualizer_running = Memo::new(move |_| {
-        ui.settings
-            .with(|s| s.theme.visualizer != VisualizerMode::Off)
+        ui.visualizer_supported()
+            && ui
+                .settings
+                .with(|s| s.theme.visualizer != VisualizerMode::Off)
             && ui.playback.with(|p| p.playing)
             && motion_allowed.get()
     });
@@ -686,13 +691,13 @@ fn App() -> impl IntoView {
 }
 #[component]
 fn Visualizer(ui: Ui) -> impl IntoView {
-    view! {<div class="visualizer" aria-hidden="true" class:active=move||ui.visualizer_active.get()>
+    view! {<Show when=move||ui.visualizer_supported()><div class="visualizer" aria-hidden="true" class:active=move||ui.visualizer_active.get()>
         <Show when=move||ui.settings.with(|s|s.theme.visualizer==VisualizerMode::BackgroundPulse)><div class="visualizer-pulse" style=move||{
             let energy=ui.spectrum.with(|bands|(bands.iter().map(|band|(*band as f64/255.0).powi(2)).sum::<f64>()/32.0).sqrt());
             format!("opacity:{:.3};transform:scale({:.3})",energy*0.22,1.0+energy*0.12)
         }/></Show>
         <Show when=move||ui.settings.with(|s|s.theme.visualizer==VisualizerMode::SpectrumBars)><div class="visualizer-spectrum">{(0..32).map(|i|view!{<span style=move||format!("transform:scaleY({:.3})",ui.spectrum.with(|bands|bands[i] as f64/255.0))/>}).collect_view()}</div></Show>
-    </div>}
+    </div></Show>}
 }
 #[component]
 fn UpdateNotice(ui: Ui, update: UpdateInfo) -> impl IntoView {

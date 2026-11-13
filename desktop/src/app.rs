@@ -140,8 +140,21 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
     ))
     .on_navigation(crate::account::navigation_allowed)
     .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-    .on_page_load(|window, _| {
+    .on_page_load(|window, page| {
         configure_player(window.app_handle());
+        if page.event() == tauri::webview::PageLoadEvent::Finished {
+            let volume = window
+                .app_handle()
+                .state::<AppState>()
+                .settings
+                .lock()
+                .unwrap()
+                .volume;
+            let _ = window.eval(format!(
+                "window.__lazytune?.configure({{volume:{}}})",
+                serde_json::to_string(&volume).unwrap()
+            ));
+        }
         let mode = window
             .app_handle()
             .state::<AppState>()

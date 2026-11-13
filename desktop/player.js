@@ -81,7 +81,7 @@
         try{p.playVideo();}catch{stopIntent('This track could not start. Try playing it again.');}
       }
     }
-    const recover=desiredPlay&&!requestedPlay&&consistent&&v?.paused&&!v.ended&&!v.error&&!v.seeking&&now>=seekUntil&&mode!=='login'&&!ad&&state!==0&&state!==3&&v.readyState>=2&&duration>0&&position<duration-1&&id!==endedId&&(!response.playabilityStatus?.status||response.playabilityStatus.status==='OK');
+    const recover=desiredPlay&&!requestedPlay&&consistent&&v?.paused&&!v.ended&&!v.error&&!v.seeking&&now>=seekUntil&&mode!=='login'&&!ad&&state!==0&&state!==3&&(v.readyState>=2||v.readyState===0&&(state===-1||state===5))&&duration>0&&position<duration-1&&id!==endedId&&(!response.playabilityStatus?.status||response.playabilityStatus.status==='OK');
     if(recover){
       pausedAt??=now;
       if(now-pausedAt>=1000&&now-lastRecovery>=1000){
@@ -92,7 +92,7 @@
     const seekable=duration>0&&canSeek(p,v,d.video_id);
     let items=[];try { items=queue()?.queue?.getItems?.() ?? []; } catch {}
     const tracks=items.slice(0,500).map(i=>track(i.playlistPanelVideoRenderer ?? i.playlistPanelVideoWrapperRenderer?.primaryRenderer?.playlistPanelVideoRenderer)).filter(t=>/^[\w-]{11}$/.test(t.id));
-    const snapshot={track:{id:str(id),title:str(d.title||metadata.title),artist:str(d.author||metadata.artist),artist_id:metadata.artist_id??'',album:'',artwork:metadata.artwork??'',duration},playing:!!v&&!v.paused&&!v.ended,play_requested:desiredPlay&&id!==endedId,position,duration,seekable,volume:pendingVolume??finite(v?.volume,1),muted:!!v?.muted,liked:$('#like-button-renderer')?.getAttribute('like-status')==='LIKE',ad,ready:!!app()?.networkManager,signed_in:!!window.ytcfg?.get?.('LOGGED_IN'),queue:tracks,error:playError};
+    const snapshot={track:{id:str(id),title:str(d.title||metadata.title),artist:str(d.author||metadata.artist),artist_id:metadata.artist_id??'',album:'',artwork:metadata.artwork??'',duration},playing:!!v&&!v.paused&&!v.ended,play_requested:desiredPlay&&id!==endedId,position,duration,seekable,volume:pendingVolume??Math.min(1,finite(p?.getVolume?.()/100,finite(v?.volume,1))),muted:!!v?.muted,liked:$('#like-button-renderer')?.getAttribute('like-status')==='LIKE',ad,ready:!!app()?.networkManager,signed_in:!!window.ytcfg?.get?.('LOGGED_IN'),queue:tracks,error:playError};
     invoke('snapshot',{snapshot});
   }
   const must = (v,message) => { if (!v) throw Error(message); return v; };
@@ -148,7 +148,7 @@
         const response=await must(app()?.networkManager,'YouTube Music is still starting').fetch(c.value.follow?'/subscription/subscribe':'/subscription/unsubscribe',{channelIds:[c.value.channel_id]});
         if(response?.error)throw Error(response.error.message??'Could not update artist following');break;
       }
-      case 'volume': pendingVolume=null;p?.setVolume(c.value*100);break;
+      case 'volume': pendingVolume=c.value;break;
       case 'mute': p?.isMuted()?p.unMute():p?.mute();break;
       case 'like': must($('#like-button-renderer')?.updateLikeStatus,'Sign in to like tracks').call($('#like-button-renderer'),c.value?'LIKE':'INDIFFERENT');break;
       case 'shuffle': must(bar?.queue,'Queue is unavailable').shuffle();break;
@@ -270,7 +270,7 @@
   }
   window.__lazytune = {
     async request(id,kind,value) {try {const result=kind==='restore'?await restore(value):kind==='catalog'?await catalog(value):await command(value);invoke('reply',{id,result:result??null});}catch(e){invoke('reply',{id,error:str(e.message)});}},
-    configure(value) {const wasEnabled=!!config.visualizer,wasVideo=config.auto_video;config={...config,...value};if(!wasEnabled&&config.visualizer)visualizerFailed=false;if(wasVideo!==config.auto_video)videoRequested='';attach();},
+    configure(value) {const wasEnabled=!!config.visualizer,wasVideo=config.auto_video;config={...config,...value};if(typeof value.volume==='number'&&Number.isFinite(value.volume)&&value.volume>=0&&value.volume<=1)pendingVolume=value.volume;if(!wasEnabled&&config.visualizer)visualizerFailed=false;if(wasVideo!==config.auto_video)videoRequested='';attach();},
     mode(value) {mode=value;if(value==='login')stopIntent();if(value==='audio')videoRequested='';document.documentElement.dataset.lazytuneMode=value;attach();},
     report,diagnostics:()=>diagnostics.slice()
   };

@@ -22,6 +22,20 @@ test('a confirmed cold cued song is primed before media readiness',async()=>{con
 test('metadata gaps do not report a false pause or erase artwork',()=>{const e=environment();const response={videoDetails:{videoId:'dQw4w9WgXcQ',lengthSeconds:'180',thumbnail:{thumbnails:[{url:'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'}]}}};e.player.getPlayerResponse=()=>response;e.window.__lazytune.report(true);e.player.getPlayerResponse=()=>({});e.window.__lazytune.report(true);const s=e.reports.at(-1).snapshot;assert.equal(s.playing,true);assert.equal(s.track.artwork,response.videoDetails.thumbnail.thumbnails[0].url);assert.equal(s.duration,180);});
 test('cold navigation waits for hydration and respects a newer Pause',async()=>{const e=environment();const navigate=e.nodes['ytmusic-app'].handleNavigationEndpoint;delete e.nodes['ytmusic-app'].handleNavigationEndpoint;const pending=e.window.__lazytune.request(1,'command',{type:'play',value:'xsdTzjogYBM'});await e.elapse(100);await e.window.__lazytune.request(2,'command',{type:'pause'});e.nodes['ytmusic-app'].handleNavigationEndpoint=navigate;await e.elapse(100);await pending;assert.equal(e.calls.some(c=>c?.watchEndpoint),false);assert.equal(e.reports.find(r=>r.kind==='reply'&&r.id===1).error,undefined);});
 test('an uncommanded pause resumes after a grace period without requiring video',async()=>{const e=environment();await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});e.window.__lazytune.report(true);e.video.paused=true;e.player.getPlayerState=()=>2;e.fire('pause');e.window.__lazytune.report(true);e.advance(999);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);e.advance(1);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,2);});
+test('a confirmed uncommanded source reset primes readyState zero within its recovery budget',async()=>{
+  for(const state of [-1,5]){
+    const e=environment();await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});e.window.__lazytune.report(true);e.video.paused=true;e.video.readyState=0;e.player.getPlayerState=()=>state;e.window.__lazytune.report(true);
+    e.advance(999);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);e.advance(1);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,2);
+    for(let n=0;n<3;n++){e.advance(1000);e.window.__lazytune.report(true);}assert.equal(e.calls.filter(c=>c==='play').length,4);assert.equal(e.reports.at(-1).snapshot.play_requested,false);
+  }
+});
+test('source-reset recovery cannot prime mismatched IDs or buffering media',async()=>{
+  for(const mismatch of [false,true]){
+    const e=environment();await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});e.window.__lazytune.report(true);e.video.paused=true;e.video.readyState=0;e.player.getPlayerState=()=>mismatch?-1:3;
+    if(mismatch)e.player.getPlayerResponse=()=>({videoDetails:{videoId:'xsdTzjogYBM',lengthSeconds:'103'}});
+    e.window.__lazytune.report(true);e.advance(5000);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);
+  }
+});
 test('catalog requests use the site network manager without navigating playback',async()=>{const e=environment();await e.window.__lazytune.request(7,'catalog',{type:'search',value:'test'});assert.equal(e.calls[0].endpoint,'/search');assert.equal(e.calls[0].body.query,'test');assert.equal(e.reports[0].id,7);});
 test('play and pause use the existing song without reloading it',async()=>{const e=environment();await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});assert.deepEqual(e.calls,['play']);await e.window.__lazytune.request(2,'command',{type:'toggle'});assert.ok(e.calls.includes('pause'));});
 test('the first play starts once the requested song is ready, without replaying the old song',async()=>{
@@ -141,6 +155,19 @@ test('leaving video mode restores audio and prevents automatic video selection',
 test('playlist and album play keep the collection queue',async()=>{const e=environment();await e.window.__lazytune.request(1,'command',{type:'play_collection',value:'VLPLtest'});assert.equal(e.calls[0].watchPlaylistEndpoint.playlistId,'PLtest');await e.window.__lazytune.request(2,'command',{type:'play_collection',value:'MPREalbum'});assert.equal(e.calls[1].body.browseId,'MPREalbum');assert.equal(e.calls[2].watchPlaylistEndpoint.playlistId,'OLAKalbum');});
 test('automatic music videos are opt-in and disabling the preference restores audio',()=>{const e=environment();e.tick();assert.equal(e.calls.includes('video'),false);e.window.__lazytune.configure({adblock:true,auto_video:true});assert.equal(e.toggle.playbackMode,'OMV_PREFERRED');e.window.__lazytune.configure({adblock:true,auto_video:false});assert.equal(e.toggle.playbackMode,'ATV_PREFERRED');});
 test('saved volume is restored once, including zero, without overriding later input',async()=>{for(const volume of [.37,0]){const e=environment(undefined,{adblock:true,volume});e.tick();assert.equal(e.video.volume,volume);assert.equal(e.reports[0].snapshot.volume,volume);await e.window.__lazytune.request(1,'command',{type:'volume',value:.6});e.tick();assert.equal(e.video.volume,.6);}});
+test('document refresh configuration restores the latest volume once without overriding later input',async()=>{
+  const e=environment(undefined,{adblock:true,volume:.3});e.tick();e.window.__lazytune.configure({volume:.8});e.tick();assert.equal(e.video.volume,.8);
+  await e.window.__lazytune.request(1,'command',{type:'volume',value:.6});e.tick();assert.equal(e.video.volume,.6);
+});
+test('early volume input survives missing player and media hydration',async()=>{
+  const e=environment(undefined,{adblock:true,volume:.3});delete e.nodes['#movie_player'];delete e.nodes['#movie_player video'];
+  await e.window.__lazytune.request(1,'command',{type:'volume',value:.6});e.nodes['#movie_player']=e.player;e.nodes['#movie_player video']=e.video;e.tick();assert.equal(e.video.volume,.6);
+});
+test('reported volume uses the requested player setting before loudness normalization',async()=>{
+  const e=environment();let requested=80;e.player.getVolume=()=>requested;e.player.setVolume=value=>{requested=value;e.video.volume=value/100*.9193904748;};e.video.volume=.8*.9193904748;
+  e.window.__lazytune.report(true);assert.equal(e.reports.at(-1).snapshot.volume,.8);
+  await e.window.__lazytune.request(1,'command',{type:'volume',value:.5});assert.equal(e.reports.findLast(r=>r.kind==='snapshot').snapshot.volume,.5);
+});
 test('a delayed seek cannot affect the next song or its loading media',async()=>{const e=environment();e.player.getVideoData=()=>({video_id:'xsdTzjogYBM',title:'Next song'});await e.window.__lazytune.request(1,'command',{type:'seek',value:{position:0,track_id:'dQw4w9WgXcQ'}});assert.equal(e.video.currentTime,5);assert.match(e.reports.at(-1).error,/track changed/);e.window.__lazytune.report(true);assert.equal(e.reports.at(-1).snapshot.position,0);assert.equal(e.reports.at(-1).snapshot.seekable,false);e.player.getPlayerResponse=()=>({videoDetails:{videoId:'xsdTzjogYBM'}});e.video.readyState=0;await e.window.__lazytune.request(2,'command',{type:'seek',value:{position:0,track_id:'xsdTzjogYBM'}});assert.equal(e.video.currentTime,5);assert.match(e.reports.at(-1).error,/still loading/);});
 test('follow and unfollow use the artist subscription channel',async()=>{const e=environment();await e.window.__lazytune.request(1,'command',{type:'follow',value:{channel_id:'UCofficial',follow:true}});assert.equal(e.calls[0].endpoint,'/subscription/subscribe');assert.equal(e.calls[0].body.channelIds[0],'UCofficial');await e.window.__lazytune.request(2,'command',{type:'follow',value:{channel_id:'UCofficial',follow:false}});assert.equal(e.calls[1].endpoint,'/subscription/unsubscribe');});
 

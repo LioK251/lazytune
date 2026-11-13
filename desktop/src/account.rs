@@ -153,7 +153,6 @@ mod native {
                     .map_err(|_| "Could not refresh the player after sign-in")
             });
         drop(transition);
-        drop(state);
         if let Err(error) = result {
             app.state::<AppState>()
                 .account
