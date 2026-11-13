@@ -219,6 +219,9 @@ impl Ui {
     fn load(self, request: CatalogRequest, append: bool) {
         if !append {
             self.current_query.set(request.clone());
+            if matches!(request, CatalogRequest::Search(_)) {
+                self.page.set(CatalogPage::default());
+            }
         }
         self.loading.set(true);
         self.error.set(String::new());
@@ -655,7 +658,7 @@ fn UpdateNotice(ui: Ui, update: UpdateInfo) -> impl IntoView {
 #[component]
 fn CatalogView(ui: Ui) -> impl IntoView {
     view! {
-      <div class="page-heading"><h1 class:selectable=move||ui.route.get()=="browse">{move||match ui.route.get().as_str(){"home"=>"Discover".into(),"search"=>format!("Results for “{}”",ui.query.get()),"library"=>"Library".into(),"liked"=>"Liked Music".into(),_=>ui.browse_title.get()}}</h1><Show when=move||ui.route.get()=="browse"&&!ui.loading.get()&&ui.page.with(|p|p.subscription.is_some())><FollowButton ui/></Show></div>
+      <div class="page-heading"><h1 class:selectable=move||ui.route.get()=="browse">{move||match ui.route.get().as_str(){"home"=>"Discover".into(),"search"=>ui.current_query.with(|request|match request{CatalogRequest::Search(query)=>format!("Results for “{query}”"),_=>"Search".into()}),"library"=>"Library".into(),"liked"=>"Liked Music".into(),_=>ui.browse_title.get()}}</h1><Show when=move||ui.route.get()=="browse"&&!ui.loading.get()&&ui.page.with(|p|p.subscription.is_some())><FollowButton ui/></Show></div>
       <Show when=move||!ui.error.get().is_empty()><section class="empty-state" role="alert"><p>{move||ui.error.get()}</p><div class="actions"><button class="secondary" on:click=move|_|ui.load(ui.current_query.get_untracked(),false)>"Retry"</button><button class="secondary" on:click=move|_|ui.show_player("login")>"Open YouTube Music"</button></div></section></Show>
       {move||{
         let home = ui.route.get()=="home";

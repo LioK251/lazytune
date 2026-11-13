@@ -125,6 +125,7 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
         "player",
         tauri::WebviewUrl::External("https://music.youtube.com/".parse().unwrap()),
     )
+    .focused(false)
     .initialization_script(format!(
         "window.__lazytuneConfig={{adblock:{},auto_video:{},volume:{}}};\n{}",
         settings.plugins.adblock,
@@ -196,8 +197,18 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
             tauri::LogicalSize::new(960.0, 600.0),
         )
         .map_err(|e| e.to_string())?;
-    view.hide().map_err(|e| e.to_string())?;
+    park_player(&view)?;
     Ok(())
+}
+
+fn park_player(view: &Webview) -> Result<(), String> {
+    // Hiding the native view prevents cold media from buffering; keep it active outside the UI.
+    view.set_bounds(tauri::Rect {
+        position: tauri::LogicalPosition::new(-10000.0, -10000.0).into(),
+        size: tauri::LogicalSize::new(960.0, 600.0).into(),
+    })
+    .map_err(|e| e.to_string())?;
+    view.show().map_err(|e| e.to_string())
 }
 
 fn prepare_dispatch(kind: &str, value: &Value, revision: &AtomicU64) -> bool {
@@ -553,7 +564,7 @@ pub async fn show_player(
         *app.state::<AppState>().player_mode.lock().unwrap() = mode;
         view.eval("window.__lazytune?.mode('audio')")
             .map_err(|e| e.to_string())?;
-        return view.hide().map_err(|e| e.to_string());
+        return park_player(&view);
     }
     let bounds = bounds.ok_or("Missing player position")?;
     bounds.validate()?;
@@ -572,7 +583,7 @@ pub async fn show_player(
     #[cfg(target_os = "macos")]
     {
         if mode == "login" {
-            view.hide().map_err(|e| e.to_string())?;
+            park_player(&view)?;
             return crate::account::show(&app, &bounds, retry.unwrap_or(false));
         }
         crate::account::close(&app)?;

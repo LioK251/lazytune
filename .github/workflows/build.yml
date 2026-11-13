@@ -90,6 +90,31 @@ jobs:
           npm install --prefix .tools/qa playwright@1.65.0
           npx --prefix .tools/qa playwright install --with-deps chrome
           node --test scripts/ui.test.cjs
+      - name: Build isolated native macOS check
+        if: matrix.platform == 'macos-arm64'
+        run: |
+          python scripts/build_native_player_test.py
+          codesign --sign - --force .tools/native-player-test/native_player_test
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          folder = Path('.tools/native-player-test')
+          binary = folder / 'native_player_test'
+          digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+          (folder / 'SHA256SUMS.txt').write_text(f'{digest}  native_player_test\n', encoding='utf-8')
+          (folder / 'CONTEXT.json').write_text(json.dumps({'commit': os.environ['GITHUB_SHA'], 'adapter_sha256': hashlib.sha256(Path('desktop/player.js').read_bytes()).hexdigest(), 'binary_sha256': digest}), encoding='utf-8')
+          PY
+      - name: Upload isolated native macOS check
+        if: matrix.platform == 'macos-arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-player-macos-arm64
+          path: |
+            .tools/native-player-test/native_player_test
+            .tools/native-player-test/SHA256SUMS.txt
+            .tools/native-player-test/CONTEXT.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Build release
         run: python scripts/build.py --release --desktop-only
       - name: Install packager

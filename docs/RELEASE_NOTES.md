@@ -1,4 +1,4 @@
-Fixes playback startup, unexpected stops, missing search results, and macOS account sign-in.
+Fixes playback startup that required toggling video, unexpected stops, missing search results, and macOS account sign-in.
 
 - Play starts a selected track without toggling video. Early navigation waits for the player to be ready.
 - Play/Pause follows the media's actual state, and the first Play primes a buffering source once.
@@ -8,6 +8,7 @@ Fixes playback startup, unexpected stops, missing search results, and macOS acco
 - macOS Google sign-in uses a separate view inside the app and preserves the existing account profile.
 - Now Playing artwork is smaller and responds to window height, keeping the title, artist, and lyrics visible.
 - Lyrics start closer to their source label while retaining smooth automatic scrolling.
+- Search headings follow the submitted query, and previous results clear when a new search starts.
 - An update notice appears once per newer stable release. It opens the release page; updates are installed manually.
 - Loading text has been removed; errors and retry actions remain.
 

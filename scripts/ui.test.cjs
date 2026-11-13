@@ -243,7 +243,7 @@ test('lyrics start close to their source and retain smooth follow and manual scr
   await page.getByRole('button', { name: 'Now Playing', exact: true }).click();
   await page.locator('#lyric-0.active').waitFor();
   const gap = await page.evaluate(() => document.querySelector('#lyric-0').getBoundingClientRect().top - document.querySelector('.lyric-source').getBoundingClientRect().bottom);
-  assert.ok(gap >= 0 && gap <= 28, `lyrics top gap was ${gap}px`);
+  assert.ok(gap >= 0 && gap <= 16, `lyrics top gap was ${gap}px`);
   await page.evaluate(() => qa.emit({ position: 80 }));
   await page.waitForFunction(() => {
     const line = document.querySelector('#lyric-16').getBoundingClientRect(), list = document.querySelector('.lyric-lines').getBoundingClientRect();
@@ -445,6 +445,41 @@ test('catalog requests show errors without loading copy', async t => {
   assert.equal(await page.getByText(/^Loading/).count(), 0);
   await page.evaluate(() => qa.rejectCatalog('Search unavailable'));
   await page.getByRole('alert').filter({ hasText: 'Search unavailable' }).waitFor();
+});
+
+test('search keeps the submitted query and ignores older results', async t => {
+  const page = await app(t);
+  await page.evaluate(() => {
+    const original = window.__TAURI__.core.invoke;
+    qa.searches = [];
+    window.__TAURI__.core.invoke = (command, args) => command === 'catalog' && args.query.type === 'search'
+      ? new Promise(resolve => qa.searches.push({ query: args.query, resolve }))
+      : original(command, args);
+    qa.finishSearch = (index, title) => qa.searches[index].resolve({ shelves: [{ title: 'Songs', items: [{ id: '_5nSnBpjTFY', title, subtitle: 'Artist', artwork: '', playable: true }] }], continuation: null });
+  });
+  const search = page.getByRole('textbox', { name: 'Search music' });
+  const query = 'цветы темный принц';
+  await search.fill(query);
+  await search.press('Enter');
+  await page.waitForFunction(() => qa.searches.length === 1);
+  assert.deepEqual(await page.evaluate(() => qa.searches[0].query), { type: 'search', value: query });
+  await page.evaluate(() => qa.finishSearch(0, 'цветы'));
+  await page.locator('.music-card strong').filter({ hasText: 'цветы' }).waitFor();
+  await search.fill('another query');
+  assert.equal(await page.locator('.page-heading h1').textContent(), `Results for “${query}”`);
+  assert.equal(await page.evaluate(() => qa.searches.length), 1, 'typing does not submit a search');
+  await search.press('Enter');
+  await page.waitForFunction(() => qa.searches.length === 2);
+  assert.equal(await page.locator('.music-card').count(), 0, 'the previous results are hidden while the next search loads');
+  await search.fill('latest query');
+  await search.press('Enter');
+  await page.waitForFunction(() => qa.searches.length === 3);
+  await page.evaluate(() => qa.finishSearch(2, 'Latest song'));
+  await page.locator('.music-card strong').filter({ hasText: 'Latest song' }).waitFor();
+  await page.evaluate(() => qa.finishSearch(1, 'Older song'));
+  await page.waitForTimeout(30);
+  assert.equal(await page.locator('.page-heading h1').textContent(), 'Results for “latest query”');
+  assert.equal(await page.locator('.music-card strong').textContent(), 'Latest song');
 });
 
 test('sign-in Retry recreates only the login surface and Back returns to account', async t => {
