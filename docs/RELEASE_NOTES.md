@@ -6,7 +6,7 @@ Fixes playback startup, unexpected stops, missing search results, and macOS acco
 - Search includes YouTube Music's top-result cards, including the exact result for `цветы темный принц`.
 - macOS Google sign-in uses a separate view inside the app and preserves the existing account profile.
 - Now Playing artwork is smaller and responds to window height, keeping the title, artist, and lyrics visible.
-- Appearance includes optional background pulse and spectrum bars driven by the music audio. Both are off by default.
+- Appearance includes optional background pulse and spectrum bars driven by the music audio, off by default. WebView2 audio capture is supported; unsupported WebKit engines preserve playback and report that visualization is unavailable.
 - An update notice appears once per newer stable release. It opens the release page; updates are installed manually.
 - Loading text has been removed; errors and retry actions remain.
 

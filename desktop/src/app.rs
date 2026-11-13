@@ -115,8 +115,9 @@ pub fn configure_player(app: &AppHandle) {
     );
     drop(settings);
     if let Some(w) = app.get_webview("player") {
+        let capture_only = cfg!(any(target_os = "macos", target_os = "linux"));
         let _ = w.eval(format!(
-            "window.__lazytune?.configure({{adblock:{enabled},auto_video:{auto_video},visualizer:{visualizer}}})"
+            "window.__lazytune?.configure({{adblock:{enabled},auto_video:{auto_video},visualizer:{visualizer},capture_only:{capture_only}}})"
         ));
     }
 }
@@ -130,10 +131,11 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::External("https://music.youtube.com/".parse().unwrap()),
     )
     .initialization_script(format!(
-        "window.__lazytuneConfig={{adblock:{},auto_video:{},volume:{}}};\n{}",
+        "window.__lazytuneConfig={{adblock:{},auto_video:{},volume:{},capture_only:{}}};\n{}",
         settings.plugins.adblock,
         settings.auto_video,
         serde_json::to_string(&settings.volume).map_err(|e| e.to_string())?,
+        cfg!(any(target_os = "macos", target_os = "linux")),
         include_str!("../player.js")
     ))
     .on_navigation(crate::account::navigation_allowed)

@@ -227,6 +227,7 @@
       const Context=window.AudioContext??window.webkitAudioContext;
       if(!Context)throw Error('Web Audio unavailable');
       audioContext??=new Context();
+      if(config.capture_only&&(typeof v.captureStream!=='function'||typeof audioContext.createMediaStreamSource!=='function'))throw Error('Audio capture unavailable');
       await Promise.race([audioContext.resume(),new Promise((_,reject)=>setTimeout(()=>reject(Error('Audio context blocked')),2000))]);
       if(audioContext.state!=='running')throw Error('Audio context blocked');
       if(!config.visualizer||mode==='login'||$('#movie_player video')!==v||v.paused||v.ended)return;

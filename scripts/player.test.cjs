@@ -245,6 +245,10 @@ test('cross-origin non-CORS audio is never rerouted by the visualizer',async()=>
   const e=audioEnvironment({capture:false});e.video.currentSrc='https://other.test/audio';e.window.__lazytune.configure({visualizer:true});await e.elapse(100);
   assert.equal(e.sources,0);assert.equal(e.video.paused,false);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,1);
 });
+test('capture-only engines reject unsupported analysis before binding or affecting audio',async()=>{
+  const e=audioEnvironment({capture:false});e.window.__lazytune.configure({visualizer:true,capture_only:true});await e.elapse(100);e.tick();await e.elapse(100);
+  assert.equal(e.sources,0);assert.equal(e.video.paused,false);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,1);
+});
 test('a failed analyser connection preserves direct audio output',async()=>{
   const e=audioEnvironment({capture:false,connectError:true});e.window.__lazytune.configure({visualizer:true});await e.elapse(100);assert.equal(e.sources,1);
   assert.ok(e.operations.some(v=>Array.isArray(v)&&v[0]==='element'&&v[1]==='destination'));assert.equal(e.video.paused,false);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,1);
