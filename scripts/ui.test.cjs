@@ -26,7 +26,6 @@ async function app(t, options = {}) {
     window.qa = {
       playback, pending, commands: [],
       emit(patch) { Object.assign(playback, patch); listeners.playback?.({ payload: structuredClone(playback) }); },
-      spectrum(bands) { listeners.visualizer?.({ payload: bands }); },
       finish(error = false) { const p = pending.shift(); error ? p.reject('Player unavailable') : p.resolve(null); },
     };
     window.__TAURI__ = {
@@ -230,6 +229,41 @@ test('lyrics match the cover and metadata height as the window and title change'
   }
 });
 
+test('lyrics start close to their source and retain smooth follow and manual scrolling', async t => {
+  const page = await app(t, { reducedMotion: 'no-preference' });
+  await page.evaluate(() => {
+    qa.emit({ position: 0 });
+    qa.scrollRequests = [];
+    const scrollTo = Element.prototype.scrollTo;
+    Element.prototype.scrollTo = function(options) {
+      if (this.classList.contains('lyric-lines')) qa.scrollRequests.push(options);
+      return scrollTo.call(this, options);
+    };
+  });
+  await page.getByRole('button', { name: 'Now Playing', exact: true }).click();
+  await page.locator('#lyric-0.active').waitFor();
+  const gap = await page.evaluate(() => document.querySelector('#lyric-0').getBoundingClientRect().top - document.querySelector('.lyric-source').getBoundingClientRect().bottom);
+  assert.ok(gap >= 0 && gap <= 28, `lyrics top gap was ${gap}px`);
+  await page.evaluate(() => qa.emit({ position: 80 }));
+  await page.waitForFunction(() => {
+    const line = document.querySelector('#lyric-16').getBoundingClientRect(), list = document.querySelector('.lyric-lines').getBoundingClientRect();
+    return Math.abs(line.top + line.height / 2 - list.top - list.height / 2) < 3;
+  });
+  assert.equal(await page.evaluate(() => qa.scrollRequests.at(-1).behavior), 'smooth');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.locator('.lyric-lines').hover();
+  await page.mouse.wheel(0, -3000);
+  await page.waitForFunction(() => document.querySelector('.lyric-lines').scrollTop === 0);
+  await page.evaluate(() => qa.emit({ position: 81 }));
+  assert.equal(await page.locator('.lyric-lines').evaluate(e => e.scrollTop), 0, 'manual scrolling remains until the next line');
+  await page.evaluate(() => qa.emit({ position: 85 }));
+  await page.waitForFunction(() => {
+    const line = document.querySelector('#lyric-17').getBoundingClientRect(), list = document.querySelector('.lyric-lines').getBoundingClientRect();
+    return Math.abs(line.top + line.height / 2 - list.top - list.height / 2) < 3;
+  });
+  assert.equal(await page.evaluate(() => qa.scrollRequests.at(-1).behavior), 'instant');
+});
+
 test('mute animates the speaker state and unmutes using the same button', async t => {
   const page = await app(t);
   await page.getByRole('button', { name: 'Mute', exact: true }).click();
@@ -411,63 +445,6 @@ test('catalog requests show errors without loading copy', async t => {
   assert.equal(await page.getByText(/^Loading/).count(), 0);
   await page.evaluate(() => qa.rejectCatalog('Search unavailable'));
   await page.getByRole('alert').filter({ hasText: 'Search unavailable' }).waitFor();
-});
-
-test('visualizer defaults off, autosaves modes and follows real bands without covering controls', async t => {
-  const page = await app(t, { reducedMotion: 'no-preference' });
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const mode = page.getByRole('combobox', { name: 'Audio visualizer', exact: true });
-  assert.equal(await mode.inputValue(), 'off');
-  await mode.selectOption('spectrum_bars');
-  await page.waitForFunction(() => qa.appliedTheme?.visualizer === 'spectrum_bars');
-  await page.evaluate(() => qa.emit({ playing: true }));
-  await page.waitForFunction(() => qa.commands.some(c => c.command === 'visualizer_active' && c.args.active));
-  await page.evaluate(() => qa.spectrum(Array.from({ length: 32 }, (_, i) => i * 8)));
-  const bars = page.locator('.visualizer-spectrum>span');
-  assert.equal(await bars.count(), 32);
-  assert.notEqual(await bars.first().getAttribute('style'), await bars.last().getAttribute('style'));
-  assert.deepEqual(await page.locator('.visualizer').evaluate(e => ({ pointerEvents: getComputedStyle(e).pointerEvents, zIndex: getComputedStyle(e).zIndex })), { pointerEvents: 'none', zIndex: '-1' });
-  await mode.selectOption('background_pulse');
-  await page.locator('.visualizer-pulse').waitFor({ state: 'attached' });
-  await page.evaluate(() => qa.spectrum(Array(32).fill(255)));
-  assert.match(await page.locator('.visualizer-pulse').getAttribute('style'), /opacity:0\.220/);
-  await page.evaluate(() => qa.emit({ playing: false }));
-  await page.waitForFunction(() => !document.querySelector('.visualizer').classList.contains('active'));
-  assert.match(await page.locator('.visualizer-pulse').getAttribute('style'), /opacity:0\.000/);
-  assert.equal(await page.evaluate(() => qa.commands.filter(c => c.command === 'visualizer_active').at(-1).args.active), false);
-});
-
-test('hidden windows and reduced motion stop visualizer sampling', async t => {
-  const page = await app(t, { reducedMotion: 'no-preference' });
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Audio visualizer', exact: true }).selectOption('spectrum_bars');
-  await page.waitForFunction(() => qa.appliedTheme?.visualizer === 'spectrum_bars');
-  await page.evaluate(() => qa.emit({ playing: true }));
-  await page.waitForFunction(() => document.querySelector('.visualizer').classList.contains('active'));
-  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
-  await page.waitForFunction(() => !document.querySelector('.visualizer').classList.contains('active'));
-  await page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
-  await page.waitForFunction(() => document.querySelector('.visualizer').classList.contains('active'));
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.waitForFunction(() => !document.querySelector('.visualizer').classList.contains('active'));
-});
-
-test('WebKit platforms disable visualization while preserving imported theme modes', async t => {
-  const theme = JSON.parse(await fs.readFile(path.join(__dirname, '../themes/monochrome.lazytune-theme'), 'utf8'));
-  for (const platform of ['macos', 'linux']) {
-    for (const visualizer of ['background_pulse', 'spectrum_bars']) {
-      const page = await app(t, { platform, reducedMotion: 'no-preference', settings: { theme: { ...theme, visualizer } } });
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
-      const selector = page.getByRole('combobox', { name: 'Audio visualizer', exact: true });
-      assert.equal(await selector.isDisabled(), true);
-      assert.equal(await selector.inputValue(), visualizer, 'the imported preference remains available for theme export');
-      await page.getByText('Audio capture is unavailable in this webview.', { exact: true }).waitFor();
-      await page.evaluate(() => { qa.emit({ playing: true, play_requested: true }); qa.spectrum(Array(32).fill(255)); });
-      assert.equal(await page.locator('.visualizer').count(), 0, 'unsupported engines do not render the effect');
-      assert.equal(await page.evaluate(() => qa.commands.some(c => c.command === 'visualizer_active' && c.args.active)), false, 'unsupported engines never request sampling');
-      assert.equal(await page.evaluate(() => qa.appliedTheme), undefined, 'runtime gating must not rewrite the saved theme');
-    }
-  }
 });
 
 test('sign-in Retry recreates only the login surface and Back returns to account', async t => {

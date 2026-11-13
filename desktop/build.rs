@@ -31,7 +31,6 @@ fn main() {
             "check_update",
             "acknowledge_update",
             "open_update",
-            "visualizer_active",
         ]),
     ))
     .expect("Tauri build configuration");

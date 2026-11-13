@@ -74,7 +74,8 @@
       if(desiredPlay&&!requestedPlay&&id!==endedId)expectPlay(id,false,false);
     }
     if(requestedPlay&&now>=requestedPlay.until)stopIntent('This track could not start. Try playing it again.');
-    if(requestedPlay&&consistent&&selected(p,id)&&p?.playVideo&&mode!=='login'&&!ad&&!v?.error&&state!==3&&(requestedPlay.explicit||!v?.ended&&id!==endedId)) {
+    // A deliberate first Play must prime a cued source even if YouTube reports buffering.
+    if(requestedPlay&&consistent&&selected(p,id)&&p?.playVideo&&mode!=='login'&&!ad&&!v?.error&&(state!==3||requestedPlay.explicit&&!Number.isFinite(requestedPlay.attempt))&&(requestedPlay.explicit||!v?.ended&&id!==endedId)) {
       if(Number.isFinite(requestedPlay.attempt)&&state===1&&playing){requestedPlay=null;pausedAt=null;}
       else if(now-requestedPlay.attempt>=500){
         requestedPlay.attempt=now;
@@ -124,8 +125,10 @@
         }catch(e){if(current(wanted))stopIntent();throw e;}
         break;
       }
-      case 'toggle':
-        if(desiredPlay||p?.getPlayerState?.()===1){stopIntent();p?.pauseVideo?.();}else expectPlay(p?.getVideoData?.()?.video_id??'');break;
+      case 'toggle': {
+        const v=$('#movie_player video');
+        if(desiredPlay||v&&!v.paused&&!v.ended){stopIntent();p?.pauseVideo?.();}else expectPlay(p?.getVideoData?.()?.video_id??'');break;
+      }
       case 'pause': stopIntent();p?.pauseVideo?.();break;
       case 'resume': if(!requestedPlay)expectPlay(p?.getVideoData?.()?.video_id??'');break;
       case 'next':
@@ -203,74 +206,9 @@
       return setAction.call(this,action,wrapped);
     };
   }
-  let audioContext=null,activeAudio=null,sampling=null,analyserStarting=false,visualizerFailed=false,lastSpectrum=-Infinity;
-  const audioNodes=new WeakMap();
-  function stopSampling(){if(sampling!==null){clearInterval(sampling);sampling=null;}}
-  function releaseCapture(){if(activeAudio&&!activeAudio.node.routed){activeAudio.node.source.disconnect();for(const t of activeAudio.node.stream.getTracks())t.stop();audioNodes.delete(activeAudio.v);activeAudio=null;}}
-  function visualizerError(){stopSampling();releaseCapture();if(!visualizerFailed){visualizerFailed=true;invoke('visualizer_error',{error:'Audio visualizer is unavailable in this browser.'});}}
-  function sampleAudio(v,node){
-    if(!config.visualizer||mode==='login'||$('#movie_player video')!==v||v.paused||v.ended||v.error||api()?.classList.contains('ad-showing')){stopSampling();return;}
-    const now=performance.now();if(now-lastSpectrum<50)return;lastSpectrum=now;
-    try{
-      node.analyser.getByteFrequencyData(node.data);
-      const bands=[];
-      for(let i=0;i<32;i++){
-        const from=Math.floor(Math.expm1(i/32*Math.log(node.data.length+1))),to=Math.min(node.data.length,Math.max(from+1,Math.floor(Math.expm1((i+1)/32*Math.log(node.data.length+1)))));
-        let sum=0;for(let j=from;j<to;j++)sum+=node.data[j];bands.push(Math.round(sum/(to-from)));
-      }
-      invoke('spectrum',{bands});
-    }catch{visualizerError();}
-  }
-  async function analyse(v){
-    analyserStarting=true;
-    try{
-      const Context=window.AudioContext??window.webkitAudioContext;
-      if(!Context)throw Error('Web Audio unavailable');
-      audioContext??=new Context();
-      if(config.capture_only&&(typeof v.captureStream!=='function'||typeof audioContext.createMediaStreamSource!=='function'))throw Error('Audio capture unavailable');
-      await Promise.race([audioContext.resume(),new Promise((_,reject)=>setTimeout(()=>reject(Error('Audio context blocked')),2000))]);
-      if(audioContext.state!=='running')throw Error('Audio context blocked');
-      if(!config.visualizer||mode==='login'||$('#movie_player video')!==v||v.paused||v.ended)return;
-      let node=audioNodes.get(v);
-      const key=v.currentSrc||v.src||'';
-      if(node&&!node.routed&&(node.key!==key||!node.stream.getAudioTracks().some(t=>t.readyState==='live'))){node.source.disconnect();for(const t of node.stream.getTracks())t.stop();audioNodes.delete(v);node=null;}
-      if(!node){
-        const analyser=audioContext.createAnalyser();analyser.fftSize=2048;analyser.smoothingTimeConstant=.8;
-        node={analyser,data:new Uint8Array(analyser.frequencyBinCount),key,routed:false};
-        if(typeof v.captureStream==='function'&&audioContext.createMediaStreamSource){
-          node.stream=v.captureStream();if(!node.stream.getAudioTracks().length)throw Error('No audio track');
-          node.source=audioContext.createMediaStreamSource(node.stream);node.source.connect(analyser);
-        }else{
-          // Binding a non-CORS media URL silences it; only route media whose origin is accessible.
-          if(!key||new URL(key,location.origin).origin!==location.origin&&!v.crossOrigin)throw Error('Media is not accessible');
-          analyser.connect(audioContext.destination);
-          node.source=audioContext.createMediaElementSource(v);node.routed=true;
-          audioNodes.set(v,node);
-          activeAudio={v,node};
-          try{node.source.connect(analyser);}catch(e){node.source.connect(audioContext.destination);throw e;}
-        }
-        audioNodes.set(v,node);
-      }
-      node.key=key;
-      activeAudio={v,node};
-      stopSampling();sampling=setInterval(()=>sampleAudio(v,node),50);sampleAudio(v,node);
-    }catch{if(config.visualizer)visualizerError();}
-    finally{analyserStarting=false;}
-  }
-  function syncAnalyser(){
-    const v=$('#movie_player video');
-    // A routed element must retain its pass-through even when the effect is disabled.
-    if(audioContext?.state==='suspended'&&activeAudio?.node.routed&&!activeAudio.v.paused)audioContext.resume().catch(()=>{});
-    if(!config.visualizer||mode==='login'||!v||v.paused||v.ended||v.readyState<2||v.error||api()?.classList.contains('ad-showing')){stopSampling();releaseCapture();return;}
-    if(activeAudio&&activeAudio.v!==v&&!activeAudio.node.routed)releaseCapture();
-    if(visualizerFailed||analyserStarting)return;
-    if(activeAudio?.v===v&&activeAudio.node.key===(v.currentSrc||v.src||'')&&audioContext?.state==='running'&&(activeAudio.node.routed||activeAudio.node.stream.getAudioTracks().some(t=>t.readyState==='live'))){
-      if(sampling===null){sampling=setInterval(()=>sampleAudio(v,activeAudio.node),50);sampleAudio(v,activeAudio.node);}
-    }else void analyse(v);
-  }
   window.__lazytune = {
     async request(id,kind,value) {try {const result=kind==='restore'?await restore(value):kind==='catalog'?await catalog(value):await command(value);invoke('reply',{id,result:result??null});}catch(e){invoke('reply',{id,error:str(e.message)});}},
-    configure(value) {const wasEnabled=!!config.visualizer,wasVideo=config.auto_video;config={...config,...value};if(typeof value.volume==='number'&&Number.isFinite(value.volume)&&value.volume>=0&&value.volume<=1)pendingVolume=value.volume;if(!wasEnabled&&config.visualizer)visualizerFailed=false;if(wasVideo!==config.auto_video)videoRequested='';attach();},
+    configure(value) {const wasVideo=config.auto_video;config={...config,...value};if(typeof value.volume==='number'&&Number.isFinite(value.volume)&&value.volume>=0&&value.volume<=1)pendingVolume=value.volume;if(wasVideo!==config.auto_video)videoRequested='';attach();},
     mode(value) {mode=value;if(value==='login')stopIntent();if(value==='audio')videoRequested='';document.documentElement.dataset.lazytuneMode=value;attach();},
     report,diagnostics:()=>diagnostics.slice()
   };
@@ -302,7 +240,7 @@
       `;
       document.head.append(style);
     }
-    const v=$('#movie_player video');if(v && bound!==v){bound=v;for(const e of ['playing','pause','seeked','loadedmetadata','canplay','volumechange','ended','error'])v.addEventListener(e,()=>{if($('#movie_player video')!==v)return;trace(e);if(e==='ended'){endedId=timeline.id;requestedPlay=null;pausedAt=null;}report(true);syncAnalyser();});v.addEventListener('timeupdate',()=>report());}
+    const v=$('#movie_player video');if(v && bound!==v){bound=v;for(const e of ['playing','pause','seeked','loadedmetadata','canplay','volumechange','ended','error'])v.addEventListener(e,()=>{if($('#movie_player video')!==v)return;trace(e);if(e==='ended'){endedId=timeline.id;requestedPlay=null;pausedAt=null;}report(true);});v.addEventListener('timeupdate',()=>report());}
     const p=api();if(config.adblock&&p?.classList.contains('ad-showing')) {const button=p.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button');if(button)button.click();else if(v&&Number.isFinite(v.duration)&&v.duration>0)v.currentTime=v.duration;}
     const toggle=$('ytmusic-av-toggle');
     const switchMode=method=>{
@@ -323,7 +261,6 @@
       if(fallback){const url=image(p?.getPlayerResponse?.()?.videoDetails?.thumbnail);const img=fallback.querySelector('img');if(img.getAttribute('src')!==url)img.src=url;img.alt='Album artwork';fallback.querySelector('span').textContent=toggle?.selectedItemHasVideo?'':'This track has no video.';}
     }
     report();
-    syncAnalyser();
   }
   // This low-frequency watchdog also recovers after YouTube replaces its player node.
   setInterval(attach,1000);

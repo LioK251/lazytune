@@ -1,12 +1,13 @@
 Fixes playback startup, unexpected stops, missing search results, and macOS account sign-in.
 
 - Play starts a selected track without toggling video. Early navigation waits for the player to be ready.
+- Play/Pause follows the media's actual state, and the first Play primes a buffering source once.
 - Unexpected stops get bounded recovery, including in the background. Pause, Stop, and ended tracks are respected.
 - Temporary metadata updates no longer change the playback state or mix song timelines.
 - Search includes YouTube Music's top-result cards, including the exact result for `цветы темный принц`.
 - macOS Google sign-in uses a separate view inside the app and preserves the existing account profile.
 - Now Playing artwork is smaller and responds to window height, keeping the title, artist, and lyrics visible.
-- Appearance includes optional background pulse and spectrum bars driven by the music audio, off by default. WebView2 audio capture is supported; unsupported WebKit engines preserve playback and report that visualization is unavailable.
+- Lyrics start closer to their source label while retaining smooth automatic scrolling.
 - An update notice appears once per newer stable release. It opens the release page; updates are installed manually.
 - Loading text has been removed; errors and retry actions remain.
 
@@ -20,6 +21,6 @@ Choose the file for your operating system. `arm64` is Apple Silicon; `x64` is In
 
 SHA-256 checksums are supplied per platform. Windows executables are not Authenticode signed and may trigger SmartScreen warnings. macOS notarization and Windows signing are pending.
 
-Install 0.1.2 manually if you use an earlier version; older versions do not contain the update checker. Settings, volume, themes, and account sessions are preserved. Visualization requires working Web Audio support in the platform's browser engine.
+Install 0.1.2 manually if you use an earlier version; older versions do not contain the update checker. Settings, volume, themes, and account sessions are preserved.
 
 YouTube Music availability, account restrictions, and subscription rules still apply. lazytune is an independent client and is not affiliated with Google or YouTube.

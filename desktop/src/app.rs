@@ -108,16 +108,11 @@ pub fn focus(app: &AppHandle) {
 pub fn configure_player(app: &AppHandle) {
     let s = app.state::<AppState>();
     let settings = s.settings.lock().unwrap();
-    let (enabled, auto_video, visualizer) = (
-        settings.plugins.adblock,
-        settings.auto_video,
-        settings.theme.visualizer != VisualizerMode::Off && crate::visualizer::active(),
-    );
+    let (enabled, auto_video) = (settings.plugins.adblock, settings.auto_video);
     drop(settings);
     if let Some(w) = app.get_webview("player") {
-        let capture_only = cfg!(any(target_os = "macos", target_os = "linux"));
         let _ = w.eval(format!(
-            "window.__lazytune?.configure({{adblock:{enabled},auto_video:{auto_video},visualizer:{visualizer},capture_only:{capture_only}}})"
+            "window.__lazytune?.configure({{adblock:{enabled},auto_video:{auto_video}}})"
         ));
     }
 }
@@ -131,11 +126,10 @@ pub fn create_player(app: &AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::External("https://music.youtube.com/".parse().unwrap()),
     )
     .initialization_script(format!(
-        "window.__lazytuneConfig={{adblock:{},auto_video:{},volume:{},capture_only:{}}};\n{}",
+        "window.__lazytuneConfig={{adblock:{},auto_video:{},volume:{}}};\n{}",
         settings.plugins.adblock,
         settings.auto_video,
         serde_json::to_string(&settings.volume).map_err(|e| e.to_string())?,
-        cfg!(any(target_os = "macos", target_os = "linux")),
         include_str!("../player.js")
     ))
     .on_navigation(crate::account::navigation_allowed)
@@ -345,12 +339,6 @@ pub async fn player_command(
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Report {
-    Spectrum {
-        bands: [u8; 32],
-    },
-    VisualizerError {
-        error: String,
-    },
     Snapshot {
         snapshot: PlaybackSnapshot,
     },
@@ -378,20 +366,6 @@ pub fn player_report(window: Webview, app: AppHandle, report: String) -> Result<
     }
     let s = app.state::<AppState>();
     match serde_json::from_str::<Report>(&report).map_err(|_| "Invalid player message")? {
-        Report::Spectrum { bands } => {
-            if crate::visualizer::active() {
-                let _ = app.emit_to("main", "visualizer", bands);
-            }
-        }
-        Report::VisualizerError { error } => {
-            if crate::visualizer::active() {
-                let _ = app.emit_to(
-                    "main",
-                    "notice",
-                    error.chars().take(400).collect::<String>(),
-                );
-            }
-        }
         Report::Snapshot { snapshot } => {
             snapshot.validate()?;
             *s.playback.lock().unwrap() = snapshot.clone();
@@ -773,15 +747,5 @@ mod tests {
             &serde_json::json!({}),
             &revision
         ));
-    }
-    #[test]
-    fn spectrum_reports_require_32_byte_bands() {
-        let bands = [128u8; 32];
-        let valid = serde_json::json!({"kind":"spectrum", "bands":bands});
-        assert!(serde_json::from_value::<Report>(valid).is_ok());
-        for bands in [vec![0; 31], vec![0; 33], vec![256; 32], vec![-1; 32]] {
-            let invalid = serde_json::json!({"kind":"spectrum", "bands":bands});
-            assert!(serde_json::from_value::<Report>(invalid).is_err());
-        }
     }
 }

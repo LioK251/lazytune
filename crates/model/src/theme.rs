@@ -29,14 +29,6 @@ pub enum Density {
     Comfortable,
     Compact,
 }
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum VisualizerMode {
-    #[default]
-    Off,
-    BackgroundPulse,
-    SpectrumBars,
-}
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Block {
@@ -91,8 +83,14 @@ pub struct ThemePack {
     pub song_colors: bool,
     #[serde(default)]
     pub glassy_player: bool,
-    #[serde(default)]
-    pub visualizer: VisualizerMode,
+    // Accept the retired field so existing settings and themes still load.
+    #[serde(
+        default,
+        rename = "visualizer",
+        deserialize_with = "discard_visualizer",
+        skip_serializing
+    )]
+    pub removed_visualizer: (),
     pub layout: Layout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wallpaper: Option<Wallpaper>,
@@ -109,11 +107,14 @@ impl Default for ThemePack {
             artwork_colors: true,
             song_colors: true,
             glassy_player: true,
-            visualizer: VisualizerMode::Off,
+            removed_visualizer: (),
             layout: Layout::default(),
             wallpaper: None,
         }
     }
+}
+fn discard_visualizer<'de, D: serde::Deserializer<'de>>(data: D) -> Result<(), D::Error> {
+    serde::de::IgnoredAny::deserialize(data).map(|_| ())
 }
 fn color(c: &str) -> bool {
     c.len() == 7 && c.starts_with('#') && c.as_bytes()[1..].iter().all(|b| b.is_ascii_hexdigit())
@@ -215,31 +216,23 @@ mod tests {
         );
     }
     #[test]
-    fn visualizer_modes_roundtrip_and_old_themes_default_off() {
-        for visualizer in [
-            VisualizerMode::Off,
-            VisualizerMode::BackgroundPulse,
-            VisualizerMode::SpectrumBars,
-        ] {
-            let theme = ThemePack {
-                visualizer,
-                ..ThemePack::default()
-            };
+    fn retired_visualizer_does_not_reset_settings_or_export() {
+        let settings = crate::Settings {
+            volume: Some(0.42),
+            ..crate::Settings::default()
+        };
+        for mode in ["off", "background_pulse", "spectrum_bars"] {
+            let mut legacy = serde_json::to_value(&settings).unwrap();
+            legacy["theme"]["visualizer"] = serde_json::json!(mode);
+            let loaded: crate::Settings = serde_json::from_value(legacy).unwrap();
+            assert_eq!(loaded, settings);
+            let exported = serde_json::to_value(&loaded.theme).unwrap();
+            assert!(exported.get("visualizer").is_none());
             assert_eq!(
-                ThemePack::parse(&serde_json::to_vec(&theme).unwrap()).unwrap(),
-                theme
+                ThemePack::parse(&serde_json::to_vec(&exported).unwrap()).unwrap(),
+                settings.theme
             );
         }
-        let mut legacy = serde_json::to_value(ThemePack::default()).unwrap();
-        legacy.as_object_mut().unwrap().remove("visualizer");
-        assert_eq!(
-            ThemePack::parse(&serde_json::to_vec(&legacy).unwrap())
-                .unwrap()
-                .visualizer,
-            VisualizerMode::Off
-        );
-        legacy["visualizer"] = serde_json::json!("unknown");
-        assert!(ThemePack::parse(&serde_json::to_vec(&legacy).unwrap()).is_err());
     }
     #[test]
     fn rejects_code_duplicates_and_bad_contrast() {

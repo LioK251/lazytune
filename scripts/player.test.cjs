@@ -13,12 +13,53 @@ function environment(origin='https://music.youtube.com',config){
   const documentEvents={},document={querySelector:s=>nodes[s]??null,documentElement:{dataset:{}},head:{append(){}},addEventListener(name,fn){(documentEvents[name]??=[]).push(fn);}};
   const window={ytcfg:{get:()=>true},__lazytuneConfig:config,__TAURI_INTERNALS__:{invoke:async(_,v)=>reports.push(JSON.parse(v.report))}};window.top=window;
   const handlers={},mediaSession={setActionHandler(name,fn){handlers[name]=fn;}};
-  let tick,now=1000,id=0;const timers=new Map(),intervals=new Map();
-  const context=vm.createContext({window,document,navigator:{mediaSession},URL,Uint8Array,location:{origin},performance:{now:()=>now},setTimeout(fn,ms){timers.set(++id,{fn,at:now+ms});return id;},setInterval(fn,ms){if(ms===1000)tick=fn;intervals.set(++id,{fn,ms});return id;},clearInterval(id){intervals.delete(id);},Response:class{async json(){return {playabilityStatus:{status:'OK'},adPlacements:[1]}}}});
-  vm.runInContext(source,context);return {context,window,video,player,reports,calls,toggle,tick,nodes,handlers,intervals,fire(name){for(const fn of events[name]??[])fn();},advance(ms){now+=ms;},async elapse(ms){for(let left=ms;left>0;left-=100){now+=Math.min(100,left);for(const [id,t] of timers){if(t.at<=now){timers.delete(id);t.fn();}}for(let n=0;n<5;n++)await Promise.resolve();}},sample(){for(const t of intervals.values())if(t.ms===50)t.fn();}};
+  let tick,now=1000,id=0;const timers=new Map();
+  const context=vm.createContext({window,document,navigator:{mediaSession},URL,location:{origin},performance:{now:()=>now},setTimeout(fn,ms){timers.set(++id,{fn,at:now+ms});return id;},setInterval(fn,ms){if(ms===1000)tick=fn;return ++id;},Response:class{async json(){return {playabilityStatus:{status:'OK'},adPlacements:[1]}}}});
+  vm.runInContext(source,context);return {context,window,video,player,reports,calls,toggle,tick,nodes,handlers,fire(name){for(const fn of events[name]??[])fn();},advance(ms){now+=ms;},async elapse(ms){for(let left=ms;left>0;left-=100){now+=Math.min(100,left);for(const [id,t] of timers){if(t.at<=now){timers.delete(id);t.fn();}}for(let n=0;n<5;n++)await Promise.resolve();}}};
 }
 test('bridge is not installed on an unrelated origin',()=>assert.equal(environment('https://evil.test').window.__lazytune,undefined));
+test('transport Play primes paused or missing media despite stale API playing state',async()=>{
+  for(const missing of [false,true]){
+    const e=environment();e.video.paused=true;if(missing)delete e.nodes['#movie_player video'];
+    await e.window.__lazytune.request(1,'command',{type:'toggle'});
+    assert.equal(e.calls.includes('pause'),false,missing?'missing media':'paused media');assert.equal(e.calls.includes('play'),true);assert.equal(e.reports.findLast(r=>r.kind==='snapshot').snapshot.play_requested,true);
+  }
+});
+test('transport Pause uses actual media playback despite a stale paused API state',async()=>{
+  const e=environment();e.player.getPlayerState=()=>2;
+  await e.window.__lazytune.request(1,'command',{type:'toggle'});
+  assert.equal(e.calls.includes('pause'),true);assert.equal(e.calls.includes('play'),false);assert.equal(e.reports.findLast(r=>r.kind==='snapshot').snapshot.play_requested,false);
+});
+test('transport Play waits for a fresh empty player to select its track',async()=>{
+  const e=environment(),data=e.player.getVideoData,response=e.player.getPlayerResponse;e.video.paused=true;e.player.getVideoData=()=>({});e.player.getPlayerResponse=()=>({});e.player.getPlayerState=()=>-1;
+  await e.window.__lazytune.request(1,'command',{type:'toggle'});assert.equal(e.calls.includes('play'),false);
+  e.player.getVideoData=data;e.window.__lazytune.report(true);assert.equal(e.calls.includes('play'),false);
+  e.player.getPlayerResponse=response;e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);
+});
+test('explicit Play waits for matching metadata instead of starting the old source',async()=>{
+  const e=environment();e.video.paused=true;
+  await e.window.__lazytune.request(1,'command',{type:'play',value:'xsdTzjogYBM'});assert.equal(e.calls.includes('play'),false);
+  e.player.getVideoData=()=>({video_id:'xsdTzjogYBM'});e.window.__lazytune.report(true);assert.equal(e.calls.includes('play'),false);
+  e.player.getPlayerResponse=()=>({videoDetails:{videoId:'xsdTzjogYBM',lengthSeconds:'103'}});e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);
+});
+test('Resume survives missing player hydration without choosing an unrelated song',async()=>{
+  const e=environment();e.video.paused=true;delete e.nodes['#movie_player'];delete e.nodes['#movie_player video'];
+  await e.window.__lazytune.request(1,'command',{type:'resume'});assert.equal(e.calls.length,0);
+  e.nodes['#movie_player']=e.player;e.nodes['#movie_player video']=e.video;e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);assert.equal(e.calls.some(c=>c?.watchEndpoint),false);
+});
+test('refreshing configuration preserves pending Play and a later deliberate Pause',async()=>{
+  const e=environment();e.video.paused=true;e.video.readyState=0;e.player.getPlayerState=()=>5;
+  await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});e.window.__lazytune.configure({volume:.3,auto_video:true});assert.equal(e.reports.findLast(r=>r.kind==='snapshot').snapshot.play_requested,true);
+  await e.window.__lazytune.request(2,'command',{type:'pause'});const attempts=e.calls.filter(c=>c==='play').length;e.window.__lazytune.configure({volume:.6,auto_video:false});e.video.readyState=4;e.advance(2000);e.window.__lazytune.report(true);
+  assert.equal(e.calls.filter(c=>c==='play').length,attempts);assert.equal(e.reports.at(-1).snapshot.play_requested,false);
+});
 test('a confirmed cold cued song is primed before media readiness',async()=>{const e=environment();e.video.readyState=0;e.video.paused=true;e.player.getPlayerState=()=>5;await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});assert.equal(e.calls.filter(c=>c==='play').length,1);assert.equal(e.reports.at(-2).snapshot.play_requested,true);});
+test('explicit Play primes a paused buffering source once before waiting for buffering',async()=>{
+  const e=environment();e.video.paused=true;e.video.readyState=0;e.player.getPlayerState=()=>3;
+  await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});assert.equal(e.calls.filter(c=>c==='play').length,1);
+  e.advance(2000);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);
+  e.player.getPlayerState=()=>2;e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,2);
+});
 test('metadata gaps do not report a false pause or erase artwork',()=>{const e=environment();const response={videoDetails:{videoId:'dQw4w9WgXcQ',lengthSeconds:'180',thumbnail:{thumbnails:[{url:'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'}]}}};e.player.getPlayerResponse=()=>response;e.window.__lazytune.report(true);e.player.getPlayerResponse=()=>({});e.window.__lazytune.report(true);const s=e.reports.at(-1).snapshot;assert.equal(s.playing,true);assert.equal(s.track.artwork,response.videoDetails.thumbnail.thumbnails[0].url);assert.equal(s.duration,180);});
 test('cold navigation waits for hydration and respects a newer Pause',async()=>{const e=environment();const navigate=e.nodes['ytmusic-app'].handleNavigationEndpoint;delete e.nodes['ytmusic-app'].handleNavigationEndpoint;const pending=e.window.__lazytune.request(1,'command',{type:'play',value:'xsdTzjogYBM'});await e.elapse(100);await e.window.__lazytune.request(2,'command',{type:'pause'});e.nodes['ytmusic-app'].handleNavigationEndpoint=navigate;await e.elapse(100);await pending;assert.equal(e.calls.some(c=>c?.watchEndpoint),false);assert.equal(e.reports.find(r=>r.kind==='reply'&&r.id===1).error,undefined);});
 test('an uncommanded pause resumes after a grace period without requiring video',async()=>{const e=environment();await e.window.__lazytune.request(1,'command',{type:'play',value:'dQw4w9WgXcQ'});e.window.__lazytune.report(true);e.video.paused=true;e.player.getPlayerState=()=>2;e.fire('pause');e.window.__lazytune.report(true);e.advance(999);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,1);e.advance(1);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,2);});
@@ -238,50 +279,8 @@ test('a native Repeat One restart restores intent and its pause recovery budget'
   e.video.currentTime=5;e.video.paused=true;e.player.getPlayerState=()=>2;e.fire('pause');e.advance(1000);e.window.__lazytune.report(true);assert.equal(e.calls.filter(c=>c==='play').length,2);
 });
 
-function audioEnvironment({capture=true,blocked=false,connectError=false}={}){
-  const e=environment(),operations=[];let sources=0,reads=0;const destination={name:'destination'};
-  class Context{
-    state='suspended';destination=destination;
-    async resume(){operations.push('resume');if(!blocked)this.state='running';}
-    createAnalyser(){return {name:'analyser',frequencyBinCount:1024,connect(target){operations.push(['analyser',target.name]);},getByteFrequencyData(data){reads++;data.fill(192);}};}
-    createMediaStreamSource(){operations.push('capture source');return {connect(){operations.push('capture connect');},disconnect(){operations.push('capture disconnect');}};}
-    createMediaElementSource(){sources++;assert.equal(this.state,'running');return {connect(target){operations.push(['element',target.name]);if(connectError&&target.name==='analyser')throw Error('connect failed');}};}
-  }
-  e.window.AudioContext=Context;e.video.currentSrc='blob:https://music.youtube.com/audio';
-  if(capture)e.video.captureStream=()=>{const track={readyState:'live',stop(){this.readyState='ended';operations.push('capture stopped');}};return {getAudioTracks:()=>[track],getTracks:()=>[track]};};
-  return {...e,operations,get sources(){return sources;},get reads(){return reads;}};
-}
-test('real analyser emits 32 audio bands at at most 20 Hz without rerouting capture audio',async()=>{
-  const e=audioEnvironment();e.window.__lazytune.configure({visualizer:true});await e.elapse(100);const spectra=e.reports.filter(r=>r.kind==='spectrum');
-  assert.equal(spectra.length,1);assert.equal(spectra[0].bands.length,32);assert.ok(spectra[0].bands.every(n=>n===192));assert.equal(e.sources,0);
-  e.sample();e.advance(49);e.sample();assert.equal(e.reports.filter(r=>r.kind==='spectrum').length,1);e.advance(1);e.sample();assert.equal(e.reports.filter(r=>r.kind==='spectrum').length,2);
-  e.video.paused=true;e.fire('pause');const reads=e.reads;e.advance(100);e.sample();assert.equal(e.reads,reads);assert.ok(e.operations.includes('capture stopped'));
-});
-test('disabling the visualizer keeps the element pass-through and reuses its single binding',async()=>{
-  const e=audioEnvironment({capture:false});e.window.__lazytune.configure({visualizer:true});await e.elapse(100);assert.equal(e.sources,1);
-  assert.ok(e.operations.some(v=>Array.isArray(v)&&v[0]==='analyser'&&v[1]==='destination'));
-  e.window.__lazytune.configure({visualizer:false});const reads=e.reads;e.advance(100);e.sample();assert.equal(e.reads,reads);assert.equal(e.video.paused,false);
-  e.video.currentSrc='blob:https://music.youtube.com/next';e.window.__lazytune.configure({visualizer:true});await e.elapse(100);e.tick();await e.elapse(100);assert.equal(e.sources,1);assert.equal(e.reports.some(r=>r.kind==='visualizer_error'),false);
-});
-test('blocked Web Audio never binds media and reports one error per enable',async()=>{
-  const e=audioEnvironment({capture:false,blocked:true});e.window.__lazytune.configure({visualizer:true});await e.elapse(100);e.tick();await e.elapse(100);
-  assert.equal(e.sources,0);assert.equal(e.video.paused,false);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,1);
-  e.window.__lazytune.configure({visualizer:false});e.window.__lazytune.configure({visualizer:true});await e.elapse(100);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,2);
-});
-test('cross-origin non-CORS audio is never rerouted by the visualizer',async()=>{
-  const e=audioEnvironment({capture:false});e.video.currentSrc='https://other.test/audio';e.window.__lazytune.configure({visualizer:true});await e.elapse(100);
-  assert.equal(e.sources,0);assert.equal(e.video.paused,false);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,1);
-});
-test('capture-only engines reject unsupported analysis before binding or affecting audio',async()=>{
-  const e=audioEnvironment({capture:false});e.window.__lazytune.configure({visualizer:true,capture_only:true});await e.elapse(100);e.tick();await e.elapse(100);
-  assert.equal(e.sources,0);assert.equal(e.video.paused,false);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,1);
-});
-test('a failed analyser connection preserves direct audio output',async()=>{
-  const e=audioEnvironment({capture:false,connectError:true});e.window.__lazytune.configure({visualizer:true});await e.elapse(100);assert.equal(e.sources,1);
-  assert.ok(e.operations.some(v=>Array.isArray(v)&&v[0]==='element'&&v[1]==='destination'));assert.equal(e.video.paused,false);assert.equal(e.reports.filter(r=>r.kind==='visualizer_error').length,1);
-});
 test('partial runtime configuration preserves saved ad and video preferences',()=>{
-  const e=environment(undefined,{adblock:false,auto_video:true});e.window.__lazytune.configure({visualizer:false});assert.equal(e.toggle.playbackMode,'OMV_PREFERRED');
+  const e=environment(undefined,{adblock:false,auto_video:true});e.window.__lazytune.configure({volume:.3});assert.equal(e.toggle.playbackMode,'OMV_PREFERRED');
   const payload=vm.runInContext('JSON.parse(\'{"videoDetails":{},"adPlacements":[1]}\')',e.context);assert.equal(payload.adPlacements.length,1);
 });
 test('account restore seeks a confirmed song and resumes only requested playback',async()=>{

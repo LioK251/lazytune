@@ -7,7 +7,6 @@ mod storage;
 #[cfg(target_os = "windows")]
 mod taskbar;
 mod update;
-mod visualizer;
 use tauri::Manager;
 fn main() {
     let context = tauri::generate_context!();
@@ -48,8 +47,7 @@ fn main() {
             app::undo_skip,
             update::check_update,
             update::acknowledge_update,
-            update::open_update,
-            visualizer::visualizer_active
+            update::open_update
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]
@@ -100,7 +98,6 @@ fn main() {
                     {
                         api.prevent_close();
                         let _ = window.hide();
-                        visualizer::sync(window.app_handle());
                     } else {
                         window.app_handle().exit(0);
                     }
@@ -111,9 +108,7 @@ fn main() {
                         state.settings.lock().unwrap().window_size =
                             [logical.width, logical.height];
                     }
-                    visualizer::sync(window.app_handle());
                 }
-                tauri::WindowEvent::Focused(_) => visualizer::sync(window.app_handle()),
                 _ => {}
             }
         })

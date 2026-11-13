@@ -53,8 +53,6 @@ The base palette is monochrome. **Colors from artwork**, **Use album artwork as 
 
 Player blocks can move between the main area and the side panel, change order, or be hidden. Themes export appearance only.
 
-**Audio visualizer** can show a background pulse or spectrum bars using the music's actual audio. It is off by default and works with artwork or custom backgrounds. It stops drawing when playback pauses, the window is minimized, or reduced motion is enabled. WebView2 audio capture is supported; WebKit engines that cannot capture music audio report an error and preserve playback. Native Mac audio capture is not included in 0.1.2.
-
 Each appearance effect and integration can be turned off independently. **Automatically select music videos** remains off by default; with it off, closing video returns to audio mode. Playlist and album cards have their own Play buttons, and the playing artist's name opens their page. Older imported themes with omitted optional appearance fields retain their previous behavior.
 
 Artist pages include Follow/Following controls. Volume is saved automatically and restored at startup. Seek commands are bound to the current track and are unavailable during track loading.
